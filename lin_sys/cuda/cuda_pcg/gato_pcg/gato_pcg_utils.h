@@ -138,7 +138,7 @@ void bd_to_csr(c_float *bdmat,
     }
 }
 
-// checked
+
 __device__
 void csr_to_custom_G(csr *csrmat,
                      c_float *d_G){
@@ -181,7 +181,7 @@ void csr_to_custom_G(csr *csrmat,
 
 __device__
 void csr_to_custom_C(csr *csrmat,
-                     c_int *d_C){
+                     c_float *d_C){
 
     /*
     out size   (STATES_SQ+STATES_P_CONTROLS)*(KNOTS-1)*sizeof(c_float)
@@ -189,7 +189,7 @@ void csr_to_custom_C(csr *csrmat,
     output must be initialized to zeroes
     */
 
-    c_int col, row_start, row_end, block_row, custom_offset;
+    c_int col, row_start, row_end, block_row;
     unsigned row, step, iter;
     
     row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
@@ -220,9 +220,11 @@ void csr_to_custom_C(csr *csrmat,
 
 __global__
 void gato_convert_ktt_format(cudapcg_solver *s, c_float *d_G, c_float *d_C){
+    
     csr_to_custom_C(s->A, d_C);
     csr_to_custom_G(s->P, d_G);
-    // also need to mirror upper triangular matrix here
+    // TODO: mirror upper triangular matrix
+
 }
 
 /*******************************************************************************

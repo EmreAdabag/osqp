@@ -40,7 +40,7 @@ namespace cgrps = cooperative_groups;
 
 
 __device__
-void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g, c_float *d_c, c_float *d_S, c_float *d_Pinv, c_float *d_gamma, c_float *d_temp, c_float *s_temp, unsigned blockrow){
+void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_float *d_S, c_float *d_Pinv, c_float *d_gamma, c_float *s_temp, unsigned blockrow){
     
     
     //  SPACE ALLOCATION IN SHARED MEM
@@ -74,10 +74,11 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g, c_fl
 
         __syncthreads();//----------------------------------------------------------------
 
+        // TODO: make gato_memcpy
         gato_memcpy(s_Q0, d_G, STATES_SQ);
-        gato_memcpy(s_QN, d_G+(KNOT_POINTS-1)*STATES_SQ, STATES_SQ);
+        gato_memcpy(s_QN, d_G+(KNOT_POINTS-1)*(STATES_SQ+CONTROLS_SQ), STATES_SQ);
         gato_memcpy(s_q0, d_g, STATE_SIZE);
-        gato_memcpy(s_qN, d_g+(KNOT_POINTS-1)*STATE_SIZE, STATE_SIZE);
+        gato_memcpy(s_qN, d_g+(KNOT_POINTS-1)*(STATE_SIZE+CONTROL_SIZE), STATE_SIZE);
 
         __syncthreads();//----------------------------------------------------------------
 
@@ -180,7 +181,8 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g, c_fl
     else{                       // BLOCKNO!=LEAD_BLOCK
 
 
-        const unsigned c_row_len = STATES_SQ + STATES_SQ + STATE_SIZE*CONTROL_SIZE;
+        const unsigned C_set_size = STATES_SQ+STATES_P_CONTROLS;
+        const unsigned G_set_size = STATES_SQ+CONTROLS_SQ;
 
         //  NON-LEADING BLOCK GOAL SHARED MEMORY STATE
         //  ...gamma_k | A_k | B_k | . | Q_k_I | . | Q_k+1_I | . | R_k_I | q_k | q_k+1 | r_k | integrator_error | extra_temp
@@ -197,7 +199,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g, c_fl
         T *s_qk = s_Rk_i +      CONTROLS_SQ; 	
         T *s_qkp1 = s_qk +      STATE_SIZE; 			
         T *s_rk = s_qkp1 +      STATE_SIZE;
-        T *s_end = s_rk +       STATE_SIZE;
+        T *s_end = s_rk +       CONTROL_SIZE;
         
         // scratch
         T *s_integrator_error = s_end; 	
@@ -216,14 +218,14 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g, c_fl
 
         __syncthreads();//----------------------------------------------------------------
 
-        gato_memcpy(s_Ak, d_C+STATES_SQ+(blockrow-1)*c_row_len, STATES_SQ);
-        gato_memcpy(s_Bk, d_C+2*STATES_SQ+(blockrow-1)*c_row_len, STATE_SIZE*CONTROL_SIZE);
-        gato_memcpy(s_Qk, d_G+blockrow*(STATES_SQ+CONTROLS_SQ), STATES_SQ);
-        gato_memcpy(s_Qkp1, d_G+(blockrow+1)*(STATES_SQ+CONTROLS_SQ), STATES_SQ);
-        gato_memcpy(s_Rk, d_G+blockrow*(STATES_SQ+CONTROLS_SQ)+STATES_SQ, CONTROLS_SQ);
-        gato_memcpy(s_qk, d_g+blockrow*(STATE_SIZE+CONTROL_SIZE), STATE_SIZE);
-        gato_memcpy(s_qkp1, d_g+(blockrow+1)*(STATE_SIZE+CONTROL_SIZE), STATE_SIZE);
-        gato_memcpy(s_rk, d_g+blockrow*(STATE_SIZE+CONTROL_SIZE)+STATE_SIZE, STATE_SIZE);
+        gato_memcpy(s_Ak,   d_C+      (blockrow-1)*C_set_size,                        STATES_SQ);
+        gato_memcpy(s_Bk,   d_C+      (blockrow-1)*C_set_size+STATES_SQ,              STATES_P_CONTROLS);
+        gato_memcpy(s_Qk,   d_G+      (blockrow-1)*G_set_size,                        STATES_SQ);
+        gato_memcpy(s_Qkp1, d_G+    (blockrow*G_set_size),                          STATES_SQ);
+        gato_memcpy(s_Rk,   d_G+      ((blockrow-1)*G_set_size+STATES_SQ),            CONTROLS_SQ);
+        gato_memcpy(s_qk,   d_g+      (blockrow-1)*(STATES_S_CONTROLS),               STATE_SIZE);
+        gato_memcpy(s_qkp1, d_g+    (blockrow)*(STATES_S_CONTROLS),                 STATE_SIZE);
+        gato_memcpy(s_rk,   d_g+      ((blockrow-1)*(STATES_S_CONTROLS)+STATE_SIZE),  CONTROL_SIZE);
 
         __syncthreads();//----------------------------------------------------------------
 
@@ -495,6 +497,8 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g, c_fl
 
 }
 
+
+#if SS_PRECON
 __device__
 gato_form_ss_inner(c_float *s_temp, c_float *d_S, c_float *d_Pinv, c_float *d_gamma, unsigned blockrow){
     
@@ -634,83 +638,6 @@ gato_form_ss_inner(c_float *s_temp, c_float *d_S, c_float *d_Pinv, c_float *d_ga
 }
 
 
-void cuda_pcg_update_precond(cudapcg_solver *s,
-                             c_int          P_updated,
-                             c_int          A_updated,
-                             c_int          R_updated){
-
-
-    
-    
-
-}
-
-__global__
-void gato_form_schur_jacobi(cudapcg_solver *s,
-                            c_float *d_S,
-                            c_float *d_Pinv 
-                            c_float *d_gamma,
-                            c_float *d_temp){
-
-
-    const unsigned s_temp_size =    10 * STATE_SIZE*STATE_SIZE+   
-                                    5 * STATE_SIZE+ 
-                                    STATE_SIZE * CONTROL_SIZE+
-                                    6 * STATE_SIZE + 3;
-                                // EMRE Mak ethis real
-    
-    __shared__ c_float *s_temp[ s_temp_size ];
-
-    for(unsigned ind=GATO_BLOCK_NUMBER; ind<KNOT_POINTS; ind+=GATO_NUM_BLOCKS){
-
-        gato_form_schur_jacobi_inner(
-            s_temp,
-            d_S,
-            d_Pinv,
-            d_gamma,
-            d_temp,
-            ind
-        );
-    
-    }
-    // csr *P  = s->P;
-    // csr *A  = s->A;
-    // csr *At = s->At;
-
-    // c_float *d_G_std = d_temp;
-    // c_float *d_C_std = d_G + P->m * P->n;
-    // c_float *d_Ct_std = d_C + A->m * A->m;
-    // c_float *end = d_Ct_std + At->m * At->m;
-
-
-
-
-
-    /*
-    note: their KKT notation
-    | P-sigma*I    At    |
-    | A            -Rinv |
-
-    form Schur S=-CGinvCt
-        1. Invert G
-                -convert to standard format?
-                -invert blocks
-        2. Multiply with -C, Ct
-    */
-
-    /* convert G from csr to std format */
-
-
-    // write CSR->standard conversion
-
-    // notes:
-    // assuming s->P is block tri
-    // OSQP uses G=P-sigma*I where sigma="penalty paramater"
-    // TODO: check that KKT system matches expected
-
-    
-}
-
 __global__
 void gato_form_ss(c_float *d_S, c_float *d_Pinv, c_float *d_gamma){
     
@@ -729,6 +656,54 @@ void gato_form_ss(c_float *d_S, c_float *d_Pinv, c_float *d_gamma){
             ind
         );
     }
+}
+
+
+__global__
+void gato_form_schur_jacobi(c_float *d_G,
+                            c_float *d_C,
+                            c_float *d_g,
+                            c_float *d_S,
+                            c_float *d_Pinv 
+                            c_float *d_gamma){
+
+
+    const unsigned s_temp_size =    10 * STATE_SIZE*STATE_SIZE+   
+                                    5 * STATE_SIZE+ 
+                                    STATE_SIZE * CONTROL_SIZE+
+                                    6 * STATE_SIZE + 3;
+                                // TODO: determine actual shared mem size needed
+    
+    __shared__ c_float *s_temp[ s_temp_size ];
+
+    for(unsigned blockrow=GATO_BLOCK_NUMBER; blockrow<KNOT_POINTS; blockrow+=GATO_NUM_BLOCKS){
+
+        gato_form_schur_jacobi_inner(
+            d_G,
+            d_C,
+            d_g,
+            d_S
+            d_Pinv,
+            d_gamma,
+            s_temp,
+            blockrow
+        );
+    
+    }
+}
+
+#endif /* #if SS_PRECON */
+
+// TODO: whatever this is
+void cuda_pcg_update_precond(cudapcg_solver *s,
+    c_int          P_updated,
+    c_int          A_updated,
+    c_int          R_updated){
+
+
+
+
+
 }
 
 /*******************************************************************************
@@ -1501,19 +1476,22 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
     c_float *d_S, *d_Pinv, *d_gamma, d_G_bd, d_C_bd, d_Ct_bd;
 
-    cudaMallocManaged(&d_S, STATES_SQ*KNOTS_SQ);
-    cudaMallocManaged(&d_Pinv, STATES_SQ*KNOTS_SQ);
-    cudaMallocManaged(&d_gamma, STATES*KNOTS);
-    cudaMallocManaged(&d_G_std, s->P->n*s->P->m);
-    cudaMallocManaged(&d_C_std, s->A-n*s->A->m);
-    cudaMallocManaged(&d_Ct_std, s->At-n*s->At->m);
+
+    // TODO: these should be calloc
+    // TODO: malloc not mallocmanaged
+    cudaMallocManaged(&d_S, 3*STATES_SQ*KNOTS*sizeof(c_float));
+    cudaMallocManaged(&d_Pinv, 3*STATES_SQ*KNOTS*sizeof(c_float));
+    cudaMallocManaged(&d_gamma, STATES*KNOTS*sizeof(c_float));
+    cudaMallocManaged(&d_G, ((STATES_SQ+CONTROLS_SQ)*KNOTS-CONTROLS_SQ)*sizeof(c_float));
+    cudaMallocManaged(&d_C, (STATES_SQ+STATES_P_CONTROLS)*(KNOTS-1)*sizeof(c_float));
 
 
-    // convert G, C, Ct into bd format
-    cudaCheckErrors(gato_convert_kkt_format(s, d_G_bd, d_C_bd, d_Ct_bd));
+    // convert G, C, c into custom formats
+    cudaCheckErrors(gato_convert_kkt_format(s, d_G, d_C));
 
     // form Schur, Jacobi
-    cudaCheckErrors(gato_form_schur_jacobi(s, d_S, d_Pinv, d_gamma));
+    // TODO: find d_g
+    cudaCheckErrors(gato_form_schur_jacobi(d_G, d_C, d_g, d_S, d_Pinv, d_gamma));
 
     cudaDeviceSynchronize();
 
