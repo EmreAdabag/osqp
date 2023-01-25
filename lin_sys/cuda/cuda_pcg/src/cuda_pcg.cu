@@ -118,7 +118,7 @@ static void mat_vec_prod(cudapcg_solver *s,
 /*******************************************************************************
  *                              API Functions                                  *
  *******************************************************************************/
-
+#define GATO_PCG
 #ifdef GATO_PCG
 #include "gato_pcg.cu"
 
@@ -126,6 +126,7 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
                     c_float         eps,
                     c_int           max_iter) {
 
+    unsigned pcg_iters;
     c_float *d_S, *d_Pinv, *d_gamma, d_G, d_C, d_g; 
 
 
@@ -158,7 +159,7 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
     // Miloni: solve PCG, d_S, d_Pinv, d_gamma are set
     // assuming its this, need solve_pcg to return iters
-    unsigned pcg_iters = solve_pcg<c_float, KNOTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma);
+    // pcg_iters = solve_pcg<c_float, KNOTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma);
 
     cudaFree(d_S);
     cudaFree(d_Pinv);
