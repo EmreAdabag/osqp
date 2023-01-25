@@ -1,16 +1,5 @@
-/**
- *
- *
- *      GATO PCG
- *
- *
- */
+#include "gato_pcg_defines.h"
 
-
-
-#include <stdio.h>
-#include "cg_defines.h"
-#include "cg_types.h"
 #include "gato_pcg_utils.h"
 
 #include <cuda.h>

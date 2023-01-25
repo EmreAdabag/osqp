@@ -141,16 +141,16 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
 
     // convert G, C, c into custom formats
-    cudaCheckErrors(gato::gato_convert_kkt_format(s, d_G, d_C, d_g));
+    gato::gato_convert_kkt_format<<<GATO_NUM_BLOCKS, GATO_THREADS_PER_BLOCK>>>(s, d_G, d_C, d_g);
 
     // form Schur, Jacobi
-    cudaCheckErrors(gato::gato_form_schur_jacobi(d_G, d_C, d_g, d_S, d_Pinv, d_gamma));
+    gato::gato_form_schur_jacobi<<<GATO_NUM_BLOCKS, GATO_THREADS_PER_BLOCK>>>(d_G, d_C, d_g, d_S, d_Pinv, d_gamma);
 
     cudaDeviceSynchronize();
 
 #if SS_PRECON
     
-    cudaCheckErrors(gato_form_ss(d_S, d_Pinv, d_gamma));
+    gato::gato_form_ss<<<GATO_NUM_BLOCKS, GATO_THREADS_PER_BLOCK>>>(d_S, d_Pinv, d_gamma);
 
     cudaDeviceSynchronize();
 
