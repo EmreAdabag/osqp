@@ -119,6 +119,65 @@ static void mat_vec_prod(cudapcg_solver *s,
  *                              API Functions                                  *
  *******************************************************************************/
 
+#ifdef GATO_PCG
+#include "gato_pcg.cu"
+
+c_int cuda_pcg_alg(cudapcg_solver *s,
+                    c_float         eps,
+                    c_int           max_iter) {
+
+    c_float *d_S, *d_Pinv, *d_gamma, d_G, d_C, d_g; 
+
+
+    // TODO: these should be calloc
+    // TODO: malloc not mallocmanaged
+    // need c too
+    cudaMallocManaged(&d_S, 3*STATES_SQ*KNOTS*sizeof(c_float));
+    cudaMallocManaged(&d_Pinv, 3*STATES_SQ*KNOTS*sizeof(c_float));
+    cudaMallocManaged(&d_gamma, STATES*KNOTS*sizeof(c_float));
+    cudaMallocManaged(&d_G, ((STATES_SQ+CONTROLS_SQ)*KNOTS-CONTROLS_SQ)*sizeof(c_float));
+    cudaMallocManaged(&d_C, (STATES_SQ+STATES_P_CONTROLS)*(KNOTS-1)*sizeof(c_float));
+    cudaMallocManaged(&d_g, ((STATE_SIZE+CONTROL_SIZE)*KNOTS-CONTROL_SIZE)*sizeof(c_float));
+
+
+    // convert G, C, c into custom formats
+    cudaCheckErrors(gato::gato_convert_kkt_format(s, d_G, d_C, d_g));
+
+    // form Schur, Jacobi
+    cudaCheckErrors(gato::gato_form_schur_jacobi(d_G, d_C, d_g, d_S, d_Pinv, d_gamma));
+
+    cudaDeviceSynchronize();
+
+#if SS_PRECON
+    
+    cudaCheckErrors(gato_form_ss(d_S, d_Pinv, d_gamma));
+
+    cudaDeviceSynchronize();
+
+#endif  /* #if SS_PRECONDITIONER */
+
+    // Miloni: solve PCG, d_S, d_Pinv, d_gamma are set
+    // assuming its this, need solve_pcg to return iters
+    unsigned pcg_iters = solve_pcg<c_float, KNOTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma);
+
+    cudaFree(d_S);
+    cudaFree(d_Pinv);
+    cudaFree(d_gamma);
+    cudaFree(d_G);
+    cudaFree(d_C);
+    cudaFree(d_g);
+
+    return pcg_iters;
+}
+
+void cuda_pcg_update_precond(cudapcg_solver *s,
+  c_int           P_updated,
+  c_int           A_updated,
+  c_int           R_updated) {
+}
+
+#else /* #ifdef GATO_PCG */
+
 c_int cuda_pcg_alg(cudapcg_solver *s,
                    c_float         eps,
                    c_int           max_iter) {
@@ -274,3 +333,5 @@ void cuda_pcg_update_precond(cudapcg_solver *s,
   /* d_diag_precond_inv = 1 / d_diag_precond */
   cuda_vec_reciprocal(s->d_diag_precond_inv, s->d_diag_precond, n);
 }
+
+#endif /* #ifdef GATO_PCG */
