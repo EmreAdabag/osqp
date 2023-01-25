@@ -25,7 +25,7 @@ void csr_to_bd(csr *csrmat,
     unsigned row, iter;
 
     
-    for(row = GATO_BLOCK_ID*GATO_NUM_THREADS+GATO_THREAD_ID; row < csrmat->m; row +=GATO_NUM_THREADS*GATO_NUM_BLOCKS){    
+    for(row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID; row < csrmat->m; row +=GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS){    
 
         row_start = csrmat->row_ptr[row];
         row_end = csrmat->row_ptr[row+1];
@@ -53,8 +53,8 @@ void csr_to_std(csr *csrmat,
     c_float val;
     unsigned row, step, iter;
     
-    row = GATO_BLOCK_ID*GATO_NUM_THREADS+GATO_THREAD_ID;
-    step = GATO_NUM_THREADS*GATO_NUM_BLOCKS;
+    row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
+    step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
     
     for(row; row < csrmat->m; row +=step){    
 
@@ -81,7 +81,7 @@ void bd_to_csr(c_float *bdmat,
     unsigned iter, bd_offset;
 
     // each thread takes one row
-    for(row = GATO_BLOCK_ID*GATO_NUM_THREADS+GATO_THREAD_ID; row < csrmat->m; row += GATO_NUM_THREADS*GATO_NUM_BLOCKS){
+    for(row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID; row < csrmat->m; row += GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS){
 
         bd_block_row = row/bdim;
 
@@ -241,7 +241,7 @@ template <typename T>
 __device__
 void pcg_memcpy(T *dst, T *src, unsigned size_Ts){
     unsigned ind;
-    for(ind=GATO_THREAD_NUMBER; ind < size_Ts; ind+=GATO_THREADS_PER_BLOCK){
+    for(ind=GATO_THREAD_ID; ind < size_Ts; ind+=GATO_THREADS_PER_BLOCK){
         dst[ind] = src[ind];
     }
 }
@@ -257,7 +257,7 @@ void storeblock(T *src, T *dst, unsigned col, unsigned BLOCKNO, int multiplier=1
     if(col>2)
         return;
     // EMRE fix 0
-    for(unsigned ind=GATO_THREAD_NUMBER; ind<B_DIM*B_DIM; ind+=GATO_THREADS_PER_BLOCK){
+    for(unsigned ind=GATO_THREAD_ID; ind<B_DIM*B_DIM; ind+=GATO_THREADS_PER_BLOCK){
         
         unsigned col_offset = (col*B_DIM+ind/B_DIM) * B_DIM*M_DIM;
         unsigned row_offset = BLOCKNO*B_DIM + ind%B_DIM;
@@ -291,7 +291,7 @@ void storeblock_funnyformat(T *src, T *dst, unsigned col, unsigned BLOCKNO, int 
     }
     else{
         
-        for(ind=GATO_THREAD_NUMBER; ind<B_DIM*B_DIM; ind+=GATO_THREADS_PER_BLOCK){
+        for(ind=GATO_THREAD_ID; ind<B_DIM*B_DIM; ind+=GATO_THREADS_PER_BLOCK){
             dst[block_row_offset + block_col_offset + ind] = src[ind] * multiplier;
         }
 
@@ -325,7 +325,7 @@ void loadblock_funnyformat(T *src, T *dst, unsigned bcol, unsigned brow, bool tr
 
         unsigned ind, transpose_col, transpose_row;
 
-        for(ind=GATO_THREAD_NUMBER; ind<B_DIM*B_DIM; ind+=GATO_THREADS_PER_BLOCK){
+        for(ind=GATO_THREAD_ID; ind<B_DIM*B_DIM; ind+=GATO_THREADS_PER_BLOCK){
             transpose_col = ind%B_DIM * B_DIM;
             transpose_row = ind/B_DIM;
             dst[transpose_col + transpose_row] = src[block_row_offset + block_col_offset + ind];    
@@ -337,26 +337,26 @@ template <typename T, unsigned BLOCK_DIM>
 __device__
 void loadBlockTriDiagonal_offDiagonal(T *s_var, T *d_var_b, cgrps::thread_block block, cgrps::grid_group grid){
     // Need to load b also now
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
         s_var[ind + BLOCK_DIM] = *(d_var_b + ind); 
     }
     // if first block just want b and b+1 (and already have b)
     if(GATO_LEAD_BLOCK){
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
             s_var[ind + 2*BLOCK_DIM] = *(d_var_b + BLOCK_DIM + ind); // just b+1
         }
 
     }
     // if last block just want b-1 and b (and already have b)
     else if (GATO_LAST_BLOCK){
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
             s_var[ind] = *(d_var_b - BLOCK_DIM + ind); // just b-1
         }
 
     }
     // else want b-1 and b and b+1 (and already have b)
     else{
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < 2*BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < 2*BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
             T *dst, *src;
             if (ind < BLOCK_DIM){dst = s_var + ind;       	  src = d_var_b - BLOCK_DIM + ind;} // b-1
             else		  		{dst = s_var + BLOCK_DIM + ind; src = d_var_b + ind;} // b+1
@@ -370,7 +370,7 @@ __device__
 void matVecMultBlockTriDiagonal(T *s_dst, T *s_mat, T *s_vec, cgrps::thread_block block, cgrps::grid_group grid){
     // First or Last block only 2 mults (var and either var+1 or var-1)
     if(GATO_LEAD_BLOCK){
-        for (unsigned r = GATO_THREAD_NUMBER; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
+        for (unsigned r = GATO_THREAD_ID; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
             T val = static_cast<T>(0);
             for(unsigned c = 0; c < 2*BLOCK_DIM; c++){
                 val += s_mat[BLOCK_DIM*BLOCK_DIM + BLOCK_DIM * c + r] * s_vec[c + BLOCK_DIM]; // var and var+1
@@ -379,7 +379,7 @@ void matVecMultBlockTriDiagonal(T *s_dst, T *s_mat, T *s_vec, cgrps::thread_bloc
         }
     }
     else if (GATO_LAST_BLOCK){
-        for (unsigned r = GATO_THREAD_NUMBER; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
+        for (unsigned r = GATO_THREAD_ID; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
             T val = static_cast<T>(0);
             for(unsigned c = 0; c < 2*BLOCK_DIM; c++){
                 val += s_mat[BLOCK_DIM * c + r] * s_vec[c]; // var and var-1
@@ -389,7 +389,7 @@ void matVecMultBlockTriDiagonal(T *s_dst, T *s_mat, T *s_vec, cgrps::thread_bloc
     }
     // else 3 mults
     else{
-        for (unsigned r = GATO_THREAD_NUMBER; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
+        for (unsigned r = GATO_THREAD_ID; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
             T val = static_cast<T>(0);
             for(unsigned c = 0; c < 3*BLOCK_DIM; c++){
                 val += s_mat[BLOCK_DIM * c + r] * s_vec[c];
@@ -403,26 +403,26 @@ template <typename T, unsigned BLOCK_DIM, unsigned N>
 __device__
 void loadBlockTriDiagonal_offDiagonal_fixed(T *s_var, T *d_var_b, unsigned block_row, cgrps::thread_block block, cgrps::grid_group grid){
     // Need to load b also now
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
         s_var[ind + BLOCK_DIM] = *(d_var_b + ind); 
     }
     // if first block just want b and b+1 (and already have b)
     if(block_row == 0){
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
             s_var[ind + 2*BLOCK_DIM] = *(d_var_b + BLOCK_DIM + ind); // just b+1
         }
 
     }
     // if last block just want b-1 and b (and already have b)
     else if (block_row == N){
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
             s_var[ind] = *(d_var_b - BLOCK_DIM + ind); // just b-1
         }
 
     }
     // else want b-1 and b and b+1 (and already have b)
     else{
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < 2*BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < 2*BLOCK_DIM; ind += GATO_THREADS_PER_BLOCK){
             T *dst, *src;
             if (ind < BLOCK_DIM){dst = s_var + ind;       	  src = d_var_b - BLOCK_DIM + ind;} // b-1
             else		  		{dst = s_var + BLOCK_DIM + ind; src = d_var_b + ind;} // b+1
@@ -436,7 +436,7 @@ __device__
 void matVecMultBlockTriDiagonal_fixed(T *s_dst, T *s_mat, T *s_vec, unsigned block_row, cgrps::thread_block block, cgrps::grid_group grid){
     // First or Last block only 2 mults (var and either var+1 or var-1)
     if(block_row == 0 ){
-        for (unsigned r = GATO_THREAD_NUMBER; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
+        for (unsigned r = GATO_THREAD_ID; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
             T val = static_cast<T>(0);
             for(unsigned c = 0; c < 2*BLOCK_DIM; c++){
                 val += s_mat[BLOCK_DIM*BLOCK_DIM + BLOCK_DIM * c + r] * s_vec[c + BLOCK_DIM]; // var and var+1
@@ -445,7 +445,7 @@ void matVecMultBlockTriDiagonal_fixed(T *s_dst, T *s_mat, T *s_vec, unsigned blo
         }
     }
     else if (block_row == N){
-        for (unsigned r = GATO_THREAD_NUMBER; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
+        for (unsigned r = GATO_THREAD_ID; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
             T val = static_cast<T>(0);
             for(unsigned c = 0; c < 2*BLOCK_DIM; c++){
                 val += s_mat[BLOCK_DIM * c + r] * s_vec[c]; // var and var-1
@@ -455,7 +455,7 @@ void matVecMultBlockTriDiagonal_fixed(T *s_dst, T *s_mat, T *s_vec, unsigned blo
     }
     // else 3 mults
     else{
-        for (unsigned r = GATO_THREAD_NUMBER; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
+        for (unsigned r = GATO_THREAD_ID; r < BLOCK_DIM; r += GATO_THREADS_PER_BLOCK){
             T val = static_cast<T>(0);
             for(unsigned c = 0; c < 3*BLOCK_DIM; c++){
                 val += s_mat[BLOCK_DIM * c + r] * s_vec[c];
@@ -475,7 +475,7 @@ void reducePlus(T *dstTemp, cgrps::thread_block block){
         bool odd_flag = size_left % 2;
         size_left = (size_left - odd_flag)/2; 
         // reduce in half
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < size_left; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < size_left; ind += GATO_THREADS_PER_BLOCK){
             dstTemp[ind] += dstTemp[ind + size_left];
         }	
         // add the odd size adjust if needed
@@ -493,7 +493,7 @@ template <typename T, unsigned VEC_SIZE>
 __device__
 void dotProd(T *dstTemp, T *vec1, T *vec2, cgrps::thread_block block){
     // first compute temp sums across all threads
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < VEC_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < VEC_SIZE; ind += GATO_THREADS_PER_BLOCK){
         dstTemp[ind] = vec1[ind] * vec2[ind];
     }
     block.sync();
@@ -629,7 +629,7 @@ void print_funny_format_matrix(T *A){
 template <typename T, unsigned DIM>
 __device__ __forceinline__
 void loadIdentity(T *A){
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < DIM*DIM; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < DIM*DIM; ind += GATO_THREADS_PER_BLOCK){
         unsigned r, c;
         r = ind % DIM; 
         c = ind / DIM;
@@ -641,7 +641,7 @@ void loadIdentity(T *A){
 template <typename T, unsigned DIMA, unsigned DIMB>
 __device__ __forceinline__
 void loadIdentity(T *A, T *B){
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < DIMA*DIMA+DIMB*DIMB; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < DIMA*DIMA+DIMB*DIMB; ind += GATO_THREADS_PER_BLOCK){
         unsigned r, c, indAdj; T *V;
         if (ind < DIMA*DIMA){
             indAdj = ind;
@@ -660,7 +660,7 @@ void loadIdentity(T *A, T *B){
 template <typename T, unsigned DIMA, unsigned DIMB, unsigned DIMC>
 __device__ __forceinline__
 void loadIdentity(T *A, T *B, T *C){
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < DIMA*DIMA+DIMB*DIMB+DIMC*DIMC; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < DIMA*DIMA+DIMB*DIMB+DIMC*DIMC; ind += GATO_THREADS_PER_BLOCK){
         unsigned r, c, indAdj; T *V;
         if (ind < DIMA*DIMA){
             indAdj = ind;
@@ -691,7 +691,7 @@ void invertMatrix(T *A, T *s_temp){
         unsigned pivColOffset = pivRC*DIM;
         // save the pivot and pivot column and row
         T pvInv = static_cast<T>(1)/A[pivRC + pivColOffset];
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < 2*DIM+1; ind++){
+        for (unsigned ind = GATO_THREAD_ID; ind < 2*DIM+1; ind++){
             unsigned AInd;
             if (ind < DIM){AInd = ind + pivColOffset;}
             else{AInd = pivRC + pivColOffset + (ind-DIM)*DIM;}
@@ -699,7 +699,7 @@ void invertMatrix(T *A, T *s_temp){
         }
         __syncthreads(); //----------------------
         // make the pivot update
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < DIM*(DIM+1); ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < DIM*(DIM+1); ind += GATO_THREADS_PER_BLOCK){
             unsigned row = ind % DIM; unsigned col = ind / DIM; unsigned colOffset = ind - row;
             // s_temp = orpcvs|prvOld
             if (row == pivRC){A[row + pivColOffset + colOffset] *= pvInv;}
@@ -724,17 +724,17 @@ T *s_memA = s_temp; T *s_memB = &s_memA[2*DIMA+1];
         bool AActive = pivRC < DIMA; bool BActive = pivRC < DIMB;
         unsigned pivColOffsetA = pivRC*DIMA; unsigned pivColOffsetB = pivRC*DIMB;
         // save the pivot column and row
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < MAX_DIM; ind++){
+        for (unsigned ind = GATO_THREAD_ID; ind < MAX_DIM; ind++){
             if (AActive && ind < DIMA){s_memA[ind] = A[ind + pivColOffsetA];}
             if (BActive && ind < DIMB){s_memB[ind] = B[ind + pivColOffsetB];}
         }
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < MAX_DIM+1; ind++){
+        for (unsigned ind = GATO_THREAD_ID; ind < MAX_DIM+1; ind++){
             if (AActive && ind < DIMA+1){s_memA[ind + DIMA] = A[ind*DIMA + pivRC + pivColOffsetA];}
             if (BActive && ind < DIMB+1){s_memB[ind + DIMB] = B[ind*DIMB + pivRC + pivColOffsetB];}
         }
         __syncthreads(); //----------------------
         // make the pivot update with s_mem = [colA,rowA,colB,rowB,colC,rowC]
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < MAX_DIM*(MAX_DIM+1); ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < MAX_DIM*(MAX_DIM+1); ind += GATO_THREADS_PER_BLOCK){
             if (AActive && ind < DIMA*(DIMA+1)){
                 unsigned row = ind % DIMA; unsigned col = ind / DIMA;
                 if (row == pivRC){A[pivColOffsetA + ind] /= s_memA[pivRC];}
@@ -766,19 +766,19 @@ void invertMatrix(T *A, T *B, T *C, T *s_temp){
         bool AActive = pivRC < DIMA; bool BActive = pivRC < DIMB; bool CActive = pivRC < DIMC;
         unsigned pivColOffsetA = pivRC*DIMA; unsigned pivColOffsetB = pivRC*DIMB; unsigned pivColOffsetC = pivRC*DIMC;
         // save the pivot column and row
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < MAX_DIM; ind++){
+        for (unsigned ind = GATO_THREAD_ID; ind < MAX_DIM; ind++){
             if (AActive && ind < DIMA){s_memA[ind] = A[ind + pivColOffsetA];}
             if (BActive && ind < DIMB){s_memB[ind] = B[ind + pivColOffsetB];}
             if (CActive && ind < DIMC){s_memC[ind] = C[ind + pivColOffsetC];}
         }
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < MAX_DIM+1; ind++){
+        for (unsigned ind = GATO_THREAD_ID; ind < MAX_DIM+1; ind++){
             if (AActive && ind < DIMA+1){s_memA[ind + DIMA] = A[ind*DIMA + pivRC + pivColOffsetA];}
             if (BActive && ind < DIMB+1){s_memB[ind + DIMB] = B[ind*DIMB + pivRC + pivColOffsetB];}
             if (CActive && ind < DIMC+1){s_memC[ind + DIMC] = C[ind*DIMC + pivRC + pivColOffsetC];}
         }
         __syncthreads(); //----------------------
         // make the pivot update with s_mem = [colA,rowA,colB,rowB,colC,rowC]
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < MAX_DIM*(MAX_DIM+1); ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < MAX_DIM*(MAX_DIM+1); ind += GATO_THREADS_PER_BLOCK){
             if (AActive && ind < DIMA*(DIMA+1)){
                 unsigned row = ind % DIMA; unsigned col = ind / DIMA;
                 if (row == pivRC){A[pivColOffsetA + ind] /= s_memA[pivRC];}
@@ -820,7 +820,7 @@ template <typename T, unsigned STATE_SIZE, unsigned CONTROL_SIZE, unsigned INTEG
 __device__ 
 void exec_integrator_error(T *s_err, T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt){
     T new_qkp1; T new_qdkp1;
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE/2; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE/2; ind += GATO_THREADS_PER_BLOCK){
         // euler xk = xk + dt *dxk
         if (INTEGRATOR_TYPE == 0){
             new_qkp1 = s_q[ind] + dt*s_qd[ind];
@@ -855,7 +855,7 @@ void exec_integrator_gradient(T *s_Ak, T *s_Bk, T *s_dqdd, T dt){
     if (INTEGRATOR_TYPE == 0){
         // then apply the euler rule -- xkp1 = xk + dt*dxk thus AB = [I_{state},0_{control}] + dt*dxd
         // where dxd = [ 0, I, 0; dqdd/dq, dqdd/dqd, dqdd/du]
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE*(STATE_SIZE + CONTROL_SIZE); ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE*(STATE_SIZE + CONTROL_SIZE); ind += GATO_THREADS_PER_BLOCK){
             int c = ind / STATE_SIZE; int r = ind % STATE_SIZE;
             T *dst = (c < STATE_SIZE)? &s_Ak[ind] : &s_Bk[ind - STATE_SIZE*STATE_SIZE]; // dst
             T val = (r == c) * static_cast<T>(1); // first term (non-branching)
@@ -872,7 +872,7 @@ void exec_integrator_gradient(T *s_Ak, T *s_Bk, T *s_dqdd, T dt){
         //                                             dqdd]
         // Ak = I + dt * [[0,I] + dt*dqdd/dx; dqdd/dx]
         // Bk = [dt*dqdd/du; dqdd/du]
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             int c = ind / STATE_SIZE; int r = ind % STATE_SIZE; int rdqdd = r % (STATE_SIZE/2);
             T dtVal = static_cast<T>((r == rdqdd)*dt + (r != rdqdd));
             s_Ak[ind] = static_cast<T>((r == c) + dt*(r == c - STATE_SIZE/2)) +
@@ -889,7 +889,7 @@ void exec_integrator_gradient(T *s_Ak, T *s_Bk, T *s_dqdd, T dt){
 template <typename T, unsigned STATE_SIZE, unsigned CONTROL_SIZE, unsigned INTEGRATOR_TYPE = 0, bool ANGLE_WRAP = false>
 __device__ 
 void exec_integrator(T *s_qkp1, T *s_qdkp1, T *s_q, T *s_qd, T *s_qdd, T dt){
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE/2; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE/2; ind += GATO_THREADS_PER_BLOCK){
         // euler xk = xk + dt *dxk
         if (INTEGRATOR_TYPE == 0){
             s_qkp1[ind] = s_q[ind] + dt*s_qd[ind];

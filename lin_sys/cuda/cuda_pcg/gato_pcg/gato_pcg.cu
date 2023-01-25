@@ -25,7 +25,7 @@ namespace cgrps = cooperative_groups;
 //  d_temp
 //  d_dynMem_const
 //  dt
-//  BLOCKNO             matrix block number, NOT threadblock number (that is GATO_BLOCK_NUMBER)
+//  BLOCKNO             matrix block number, NOT threadblock number (that is GATO_BLOCK_ID)
 
 
 __device__
@@ -161,7 +161,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
 
         // save -Q0^{-1}q0 in spot 0 in gamma
-        for(unsigned ind = GATO_THREAD_NUMBER; ind < STATES_SQ; ind += GATO_THREADS_PER_BLOCK){
+        for(unsigned ind = GATO_THREAD_ID; ind < STATES_SQ; ind += GATO_THREADS_PER_BLOCK){
             d_gamma[ind] = -s_Q0[ind];
         }
         __syncthreads();//----------------------------------------------------------------
@@ -302,7 +302,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
             s_qkp1,
             s_gamma_k
         );
-        for(unsigned i = GATO_THREAD_NUMBER; i < STATE_SIZE; i += GATO_THREADS_PER_BLOCK){
+        for(unsigned i = GATO_THREAD_ID; i < STATE_SIZE; i += GATO_THREADS_PER_BLOCK){
             s_gamma_k[i] -= s_integrator_error[i];
         }
         __syncthreads();//----------------------------------------------------------------
@@ -339,7 +339,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         __syncthreads();//----------------------------------------------------------------
         
         // gamma = yeah...
-        for(unsigned i = GATO_THREAD_NUMBER; i < STATE_SIZE; i += GATO_THREADS_PER_BLOCK){
+        for(unsigned i = GATO_THREAD_ID; i < STATE_SIZE; i += GATO_THREADS_PER_BLOCK){
             s_gamma_k[i] -= s_Rk[i] + s_Qk[i];
         }
         __syncthreads();//----------------------------------------------------------------
@@ -376,7 +376,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
         __syncthreads();//----------------------------------------------------------------
 
-        for(unsigned i = GATO_THREAD_NUMBER; i < STATES_SQ; i += GATO_THREADS_PER_BLOCK){
+        for(unsigned i = GATO_THREAD_ID; i < STATES_SQ; i += GATO_THREADS_PER_BLOCK){
             s_theta_k[i] += s_Qkp1_i[i];
         }
         __syncthreads();//----------------------------------------------------------------
@@ -391,7 +391,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
         __syncthreads();//----------------------------------------------------------------
 
-        for(unsigned i = GATO_THREAD_NUMBER; i < STATES_SQ; i += GATO_THREADS_PER_BLOCK){
+        for(unsigned i = GATO_THREAD_ID; i < STATES_SQ; i += GATO_THREADS_PER_BLOCK){
             s_theta_k[i] += s_Rk[i];
         }
         __syncthreads();//----------------------------------------------------------------
@@ -451,7 +451,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 #else /* BLOCK_J_PRECONDITIONER || SS_PRECONDITIONER  */
 
         // save 1 / diagonal to PhiInv
-        for(int i = GATO_THREAD_NUMBER; i < STATE_SIZE; i+=GATO_THREADS_PER_BLOCK){
+        for(int i = GATO_THREAD_ID; i < STATE_SIZE; i+=GATO_THREADS_PER_BLOCK){
             d_PhiInv[BLOCKNO*(3*STATES_SQ)+STATES_SQ+i*STATE_SIZE+i]= 1 / d_S[BLOCKNO*(3*STATES_SQ)+STATES_SQ+i*STATE_SIZE+i]; 
         }
 #endif /* BLOCK_J_PRECONDITIONER || SS_PRECONDITIONER  */
@@ -460,7 +460,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         __syncthreads();//----------------------------------------------------------------
 
         // save gamma_k in gamma
-        for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+        for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             unsigned offset = (BLOCKNO)*STATE_SIZE + ind;
             d_gamma[offset] = s_gamma_k[ind]*-1;
         }
@@ -636,7 +636,7 @@ void gato_form_ss(c_float *d_S, c_float *d_Pinv, c_float *d_gamma){
 
     __shared__ c_float s_temp[ s_temp_size ];
 
-    for(unsigned ind=GATO_BLOCK_NUMBER; ind<KNOT_POINTS; ind+=GATO_NUM_BLOCKS){
+    for(unsigned ind=GATO_BLOCK_ID; ind<KNOT_POINTS; ind+=GATO_NUM_BLOCKS){
         gato_form_ss_inner(
             s_temp,
             d_S,
@@ -665,7 +665,7 @@ void gato_form_schur_jacobi(c_float *d_G,
     
     __shared__ c_float *s_temp[ s_temp_size ];
 
-    for(unsigned blockrow=GATO_BLOCK_NUMBER; blockrow<KNOT_POINTS; blockrow+=GATO_NUM_BLOCKS){
+    for(unsigned blockrow=GATO_BLOCK_ID; blockrow<KNOT_POINTS; blockrow+=GATO_NUM_BLOCKS){
 
         gato_form_schur_jacobi_inner(
             d_G,
@@ -723,12 +723,12 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
     // note that in this formulation we always reset lambda to 0 and therefore we can simplify this step
     // Therefore, s_r_b = s_gamma_b
 
-    for( unsigned block_number = GATO_BLOCK_NUMBER; block_number < N; block_number += GATO_NUM_BLOCKS){
+    for( unsigned block_number = GATO_BLOCK_ID; block_number < N; block_number += GATO_NUM_BLOCKS){
 
         // directly write to device memory
         bIndStateSize = STATE_SIZE * block_number;
         // We find the s_r, load it into device memory, initialise lambda to 0
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             d_r[bIndStateSize + ind] = d_gamma[STATE_SIZE * block_number + ind]; 
             d_lambda[bIndStateSize + ind] = static_cast<T>(0);
         }
@@ -750,10 +750,10 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
     // grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
     
     
-    for( unsigned block_number = GATO_BLOCK_NUMBER; block_number < N; block_number += GATO_NUM_BLOCKS){
+    for( unsigned block_number = GATO_BLOCK_ID; block_number < N; block_number += GATO_NUM_BLOCKS){
         // load s_r_b, pinv
         bIndStateSize = STATE_SIZE * block_number;
-        for (unsigned ind= GATO_THREAD_NUMBER; ind < 3*STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind= GATO_THREAD_ID; ind < 3*STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             s_pinv[ind] = d_pinv[bIndStateSize*STATE_SIZE*3 + ind]; 
         }
         loadBlockTriDiagonal_offDiagonal_fixed<T,STATE_SIZE, N>(s_r,&d_r[bIndStateSize],block_number,block,grid);
@@ -766,12 +766,12 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
 
         // We copy p from r_tilde and write to device, since it will be required by other blocks
         //write back s_r_tilde, s_p
-        for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+        for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             d_p[bIndStateSize + ind] = s_r_tilde[ind];
             d_r_tilde[bIndStateSize + ind] = s_r_tilde[ind];
         }
         if(GATO_LEAD_THREAD){
-            // printf("Partial sums of Block %d and Block Number %d: %f\n", GATO_BLOCK_NUMBER, block_number,s_eta_new_b[0] );
+            // printf("Partial sums of Block %d and Block Number %d: %f\n", GATO_BLOCK_ID, block_number,s_eta_new_b[0] );
             atomicAdd(d_eta_new,s_eta_new_b[0]);
         }
         block.sync();
@@ -790,11 +790,11 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
         }
         grid.sync();
         // for over rows, 
-        for( unsigned block_number = GATO_BLOCK_NUMBER; block_number < N; block_number += GATO_NUM_BLOCKS){
+        for( unsigned block_number = GATO_BLOCK_ID; block_number < N; block_number += GATO_NUM_BLOCKS){
 
             bIndStateSize = STATE_SIZE * block_number;
             // s_S, s_p (already) load from device for that particular row
-            for (unsigned ind = GATO_THREAD_NUMBER; ind < 3*STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for (unsigned ind = GATO_THREAD_ID; ind < 3*STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 s_S[ind] = d_S[bIndStateSize * STATE_SIZE * 3 + ind]; 
             }
             block.sync();
@@ -808,7 +808,7 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
             block.sync();
 
             // only upsilon needs to be written to device memory
-            for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 d_upsilon[bIndStateSize + ind] = s_upsilon[ind];
             }
 
@@ -819,12 +819,12 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
             
         }
         grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
-        for( unsigned block_number = GATO_BLOCK_NUMBER; block_number < N; block_number += GATO_NUM_BLOCKS){
+        for( unsigned block_number = GATO_BLOCK_ID; block_number < N; block_number += GATO_NUM_BLOCKS){
 
             bIndStateSize = STATE_SIZE * block_number;
             
             // load s_p, s_lambda, s_upsilon, s_r
-            for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 s_p_b[ind] = d_p[bIndStateSize + ind];
                 s_lambda[ind] = d_lambda[bIndStateSize + ind];
                 s_upsilon[ind] = d_upsilon[bIndStateSize + ind];
@@ -837,7 +837,7 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
             block.sync();
 
             // Move this loop into a function, write  back lambda and r
-            for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 s_lambda[ind] += alpha * s_p_b[ind];
                 s_r_b[ind] -= alpha * s_upsilon[ind];
                 d_lambda[bIndStateSize + ind] = s_lambda[ind];
@@ -852,11 +852,11 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
             *d_eta_new = static_cast<T>(0);
         }
         block.sync();
-        for( unsigned block_number = GATO_BLOCK_NUMBER; block_number < N; block_number += GATO_NUM_BLOCKS){
+        for( unsigned block_number = GATO_BLOCK_ID; block_number < N; block_number += GATO_NUM_BLOCKS){
 
             bIndStateSize = STATE_SIZE * block_number;
             // load s_r (already), s_pinv
-            for (unsigned ind = GATO_THREAD_NUMBER; ind < 3*STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for (unsigned ind = GATO_THREAD_ID; ind < 3*STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 s_pinv[ind] = d_pinv[bIndStateSize * STATE_SIZE * 3 + ind]; 
             }
 
@@ -867,7 +867,7 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
             dotProd<T,STATE_SIZE>(s_eta_new_b,s_r_tilde,s_r_b,block);
             block.sync();
             // write back r_tilde
-            for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 d_r_tilde[bIndStateSize + ind] = s_r_tilde[ind];
             }
 
@@ -892,11 +892,11 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
         else{
 
             beta = eta_new / eta;
-            for( unsigned block_number = GATO_BLOCK_NUMBER; block_number < N; block_number += GATO_NUM_BLOCKS){
+            for( unsigned block_number = GATO_BLOCK_ID; block_number < N; block_number += GATO_NUM_BLOCKS){
 
                 bIndStateSize = STATE_SIZE * block_number;
                 // load s_p, s_r_tilde, write back s_p
-                for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+                for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                     s_p_b[ind] = d_p[bIndStateSize + ind];
                     s_r_tilde[ind] = d_r_tilde[bIndStateSize + ind];
                     s_p_b[ind] = s_r_tilde[ind] + beta*s_p_b[ind];
@@ -959,14 +959,14 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
     T eta = static_cast<T>(0);	T eta_new = static_cast<T>(0);
 
     // Used when writing to device memory
-    int bIndStateSize = STATE_SIZE * GATO_BLOCK_NUMBER;
+    int bIndStateSize = STATE_SIZE * GATO_BLOCK_ID;
 
     // Initililiasation before the main-pcg loop
     // note that in this formulation we always reset lambda to 0 and therefore we can simplify this step
     // Therefore, s_r_b = s_gamma_b
 
     // We find the s_r, load it into device memory, initialise lambda to 0
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
         s_r_b[ind] = s_gamma[ind];
         d_r[bIndStateSize + ind] = s_r_b[ind]; 
         s_lambda[ind] = static_cast<T>(0);
@@ -985,7 +985,7 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
     block.sync();
 
     // We copy p from r_tilde and write to device, since it will be required by other blocks
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
   		s_p_b[ind] = s_r_tilde[ind];
         d_p[bIndStateSize + ind] = s_p_b[ind]; 
   	}
@@ -994,7 +994,7 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
     block.sync();
 
     if(GATO_LEAD_THREAD){
-        // printf("Partial sums of Block %d: %f\n", GATO_BLOCK_NUMBER, s_eta_new_b[0] );
+        // printf("Partial sums of Block %d: %f\n", GATO_BLOCK_ID, s_eta_new_b[0] );
         atomicAdd(d_eta_new,s_eta_new_b[0]);
     }
 
@@ -1032,7 +1032,7 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
         block.sync();
 
         // Move this loop into a function
-        for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+        for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             s_lambda[ind] += alpha * s_p_b[ind];
             s_r_b[ind] -= alpha * s_upsilon[ind];
             d_r[bIndStateSize + ind] = s_r_b[ind];
@@ -1068,7 +1068,7 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
         // else compute d_p for next loop
         else{
             beta = eta_new / eta;
-            for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 s_p_b[ind] = s_r_tilde[ind] + beta*s_p_b[ind];
                 d_p[bIndStateSize + ind] = s_p_b[ind];
             }
@@ -1084,7 +1084,7 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
     }
     // save final lambda to global
     block.sync(); //-------------------------------------------------------------------------------------------------------BARRIER
-    for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
         d_lambda[bIndStateSize + ind] = s_lambda[ind];
     }
     
@@ -1108,12 +1108,12 @@ void parallelPCG(T *d_S, T *d_pinv, T *d_gamma,  				// block-local constant tem
     cgrps::thread_block block = cgrps::this_thread_block();	 
     cgrps::grid_group grid = cgrps::this_grid();
 
-    int bIndStateSize = STATE_SIZE * GATO_BLOCK_NUMBER;
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < 3 * STATE_SIZE * STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    int bIndStateSize = STATE_SIZE * GATO_BLOCK_ID;
+    for (unsigned ind = GATO_THREAD_ID; ind < 3 * STATE_SIZE * STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
   		s_S[ind] = d_S[bIndStateSize*STATE_SIZE*3 + ind];
         s_pinv[ind] = d_pinv[bIndStateSize*STATE_SIZE*3 + ind];
   	}
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
   		s_gamma[ind] = d_gamma[bIndStateSize + ind];
   	}
     grid.sync();
@@ -1145,14 +1145,14 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
     T eta = static_cast<T>(0);	T eta_new = static_cast<T>(0);
 
     // Used when writing to device memory
-    int bIndStateSize = STATE_SIZE * GATO_BLOCK_NUMBER;
+    int bIndStateSize = STATE_SIZE * GATO_BLOCK_ID;
 
     // Initililiasation before the main-pcg loop
     // note that in this formulation we always reset lambda to 0 and therefore we can simplify this step
     // Therefore, s_r_b = s_gamma_b
 
     // We find the s_r, load it into device memory, initialise lambda to 0
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
         s_r_b[ind] = s_gamma[ind];
         d_r[bIndStateSize + ind] = s_r_b[ind]; 
         s_lambda[ind] = static_cast<T>(0);
@@ -1168,7 +1168,7 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
 
 
     // We copy p from r_tilde and write to device, since it will be required by other blocks
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
   		s_p_b[ind] = s_r_b[ind];
         d_p[bIndStateSize + ind] = s_p_b[ind]; 
   	}
@@ -1177,7 +1177,7 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
     block.sync();
 
     if(GATO_LEAD_THREAD){
-        // printf("Partial sums of Block %d: %f\n", GATO_BLOCK_NUMBER, s_eta_new_b[0] );
+        // printf("Partial sums of Block %d: %f\n", GATO_BLOCK_ID, s_eta_new_b[0] );
         atomicAdd(d_eta_new,s_eta_new_b[0]);
     }
 
@@ -1215,7 +1215,7 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
         block.sync();
 
         // Move this loop into a function
-        for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+        for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             s_lambda[ind] += alpha * s_p_b[ind];
             s_r_b[ind] -= alpha * s_upsilon[ind];
             d_r[bIndStateSize + ind] = s_r_b[ind];
@@ -1248,7 +1248,7 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
         // else compute d_p for next loop
         else{
             beta = eta_new / eta;
-            for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+            for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
                 s_p_b[ind] = s_r_b[ind] + beta*s_p_b[ind];
                 d_p[bIndStateSize + ind] = s_p_b[ind];
             }
@@ -1264,7 +1264,7 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
     }
     // save final lambda to global
     block.sync(); //-------------------------------------------------------------------------------------------------------BARRIER
-    for(unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
         d_lambda[bIndStateSize + ind] = s_lambda[ind];
     }
     
@@ -1288,12 +1288,12 @@ void parallelCG(T *d_S, T *d_pinv, T *d_gamma,  				// block-local constant temp
     cgrps::thread_block block = cgrps::this_thread_block();	 
     cgrps::grid_group grid = cgrps::this_grid();
 
-    int bIndStateSize = STATE_SIZE * GATO_BLOCK_NUMBER;
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < 3 * STATE_SIZE * STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    int bIndStateSize = STATE_SIZE * GATO_BLOCK_ID;
+    for (unsigned ind = GATO_THREAD_ID; ind < 3 * STATE_SIZE * STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
   		s_S[ind] = d_S[bIndStateSize*STATE_SIZE*3 + ind];
         s_pinv[ind] = d_pinv[bIndStateSize*STATE_SIZE*3 + ind];
   	}
-    for (unsigned ind = GATO_THREAD_NUMBER; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
+    for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
   		s_gamma[ind] = d_gamma[bIndStateSize + ind];
   	}
     grid.sync();
