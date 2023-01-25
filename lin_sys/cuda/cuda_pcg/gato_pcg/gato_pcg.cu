@@ -1355,7 +1355,7 @@ int check_sms(void* kernel, dim3 block){
 
 
 
-template <typename T, unsigned N, unsigned STATE_SIZE, unsigned CONTROL_SIZE, unsigned PRECONDITIONER_BANDWITH>
+template <typename T, unsigned N, unsigned STATE_SIZE, unsigned CONTROL_SIZE, unsigned PRECONDITIONER_BANDWITH=3>
 void solve_pcg(T *d_S, T *d_Pinv, T *d_gamma){
 
     T *d_lambda, *d_r, *d_p, *d_v, *d_eta_new, *d_r_tilde, *d_upsilon;
@@ -1467,14 +1467,14 @@ void solve_pcg(T *d_S, T *d_Pinv, T *d_gamma){
 
 }
 
-}
+}   /* namespace gato */
 
 
 c_int cuda_pcg_alg(cudapcg_solver *s,
                     c_float         eps,
                     c_int           max_iter) {
 
-    c_float *d_S, *d_Pinv, *d_gamma, d_G_bd, d_C_bd, d_Ct_bd;
+    c_float *d_S, *d_Pinv, *d_gamma, d_G, d_C; 
 
 
     // TODO: these should be calloc
@@ -1487,11 +1487,11 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
 
     // convert G, C, c into custom formats
-    cudaCheckErrors(gato_convert_kkt_format(s, d_G, d_C));
+    cudaCheckErrors(gato::gato_convert_kkt_format(s, d_G, d_C));
 
     // form Schur, Jacobi
     // TODO: find d_g
-    cudaCheckErrors(gato_form_schur_jacobi(d_G, d_C, d_g, d_S, d_Pinv, d_gamma));
+    cudaCheckErrors(gato::gato_form_schur_jacobi(d_G, d_C, d_g, d_S, d_Pinv, d_gamma));
 
     cudaDeviceSynchronize();
 
@@ -1503,5 +1503,14 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
 #endif  /* #if SS_PRECONDITIONER */
 
-    
+    // Miloni: solve PCG, d_S, d_Pinv, d_gamma are set
+    // assuming its this
+    solve_pcg<c_float, KNOTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma);
+
+
+    cudaFree(d_S);
+    cudaFree(d_Pinv);
+    cudaFree(d_gamma);
+    cudaFree(d_G);
+    cudaFree(d_C);
 }
