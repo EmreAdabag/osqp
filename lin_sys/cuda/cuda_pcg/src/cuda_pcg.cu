@@ -118,9 +118,9 @@ static void mat_vec_prod(cudapcg_solver *s,
 /*******************************************************************************
  *                              API Functions                                  *
  *******************************************************************************/
-
+#define GATO_PCG
 #ifdef GATO_PCG
-#include "gato_pcg.cu"
+#include "../gato_pcg/gato_pcg.cu"
 
 c_int cuda_pcg_alg(cudapcg_solver *s,
                     c_float         eps,

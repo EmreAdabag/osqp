@@ -4,8 +4,6 @@
 #include <iostream>
 #include <iomanip>
 
-#include "cg_v4_pendPlant.cuh"
-
 #include <cooperative_groups.h>
 namespace cgrps = cooperative_groups;
 
