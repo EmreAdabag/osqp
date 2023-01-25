@@ -165,48 +165,48 @@ c_int init_linsys_solver_cudapcg(cudapcg_solver    **sp,
   }
 
   /* Allocate PCG iterates */
-  cuda_calloc((void **) &s->d_x,   n * sizeof(c_float));    /* Set d_x to zero */
-  cuda_malloc((void **) &s->d_p,   n * sizeof(c_float));
-  cuda_malloc((void **) &s->d_Kp,  n * sizeof(c_float));
-  cuda_malloc((void **) &s->d_y,   n * sizeof(c_float));
-  cuda_malloc((void **) &s->d_r,   n * sizeof(c_float));
-  cuda_malloc((void **) &s->d_rhs, n * sizeof(c_float));
-  if (m != 0) cuda_malloc((void **) &s->d_z, m * sizeof(c_float));
+  // cuda_calloc((void **) &s->d_x,   n * sizeof(c_float));    /* Set d_x to zero */
+  // cuda_malloc((void **) &s->d_p,   n * sizeof(c_float));
+  // cuda_malloc((void **) &s->d_Kp,  n * sizeof(c_float));
+  // cuda_malloc((void **) &s->d_y,   n * sizeof(c_float));
+  // cuda_malloc((void **) &s->d_r,   n * sizeof(c_float));
+  // cuda_malloc((void **) &s->d_rhs, n * sizeof(c_float));
+  // if (m != 0) cuda_malloc((void **) &s->d_z, m * sizeof(c_float));
 
   /* Allocate scalar in host memory that is page-locked and accessible to device */
-  cuda_malloc_host((void **) &s->h_r_norm, sizeof(c_float));
+  // cuda_malloc_host((void **) &s->h_r_norm, sizeof(c_float));
 
   /* Allocate device-side scalar values. This way scalars are packed in device memory */
-  cuda_malloc((void **) &s->d_r_norm, 8 * sizeof(c_float));
-  s->rTy         = s->d_r_norm + 1;
-  s->rTy_prev    = s->d_r_norm + 2;
-  s->alpha       = s->d_r_norm + 3;
-  s->beta        = s->d_r_norm + 4;
-  s->pKp         = s->d_r_norm + 5;
-  s->D_MINUS_ONE = s->d_r_norm + 6;
-  s->d_sigma     = s->d_r_norm + 7;
-  cuda_vec_copy_h2d(s->D_MINUS_ONE, &H_MINUS_ONE, 1);
-  cuda_vec_copy_h2d(s->d_sigma,     s->h_sigma,   1);
+  // cuda_malloc((void **) &s->d_r_norm, 8 * sizeof(c_float));
+  // s->rTy         = s->d_r_norm + 1;
+  // s->rTy_prev    = s->d_r_norm + 2;
+  // s->alpha       = s->d_r_norm + 3;
+  // s->beta        = s->d_r_norm + 4;
+  // s->pKp         = s->d_r_norm + 5;
+  // s->D_MINUS_ONE = s->d_r_norm + 6;
+  // s->d_sigma     = s->d_r_norm + 7;
+  // cuda_vec_copy_h2d(s->D_MINUS_ONE, &H_MINUS_ONE, 1);
+  // cuda_vec_copy_h2d(s->d_sigma,     s->h_sigma,   1);
 
   /* Allocate memory for PCG preconditioning */
-  if (s->precondition) {
-    cuda_malloc((void **) &s->d_P_diag_val,       n * sizeof(c_float));
-    cuda_malloc((void **) &s->d_AtRA_diag_val,    n * sizeof(c_float));
-    cuda_malloc((void **) &s->d_diag_precond,     n * sizeof(c_float));
-    cuda_malloc((void **) &s->d_diag_precond_inv, n * sizeof(c_float));
-    if (!s->d_rho_vec) cuda_malloc((void **) &s->d_AtA_diag_val, n * sizeof(c_float));
-  }
+  // if (s->precondition) {
+  //   cuda_malloc((void **) &s->d_P_diag_val,       n * sizeof(c_float));
+  //   cuda_malloc((void **) &s->d_AtRA_diag_val,    n * sizeof(c_float));
+  //   cuda_malloc((void **) &s->d_diag_precond,     n * sizeof(c_float));
+  //   cuda_malloc((void **) &s->d_diag_precond_inv, n * sizeof(c_float));
+  //   if (!s->d_rho_vec) cuda_malloc((void **) &s->d_AtA_diag_val, n * sizeof(c_float));
+  // }
 
   /* Set the vector norm */
-  switch (s->norm) {
-    case 0:
-      s->vector_norm = &cuda_vec_norm_inf;
-      break;
+  // switch (s->norm) {
+  //   case 0:
+  //     s->vector_norm = &cuda_vec_norm_inf;
+  //     break;
 
-    case 2:
-      s->vector_norm = &cuda_vec_norm_2;
-      break;
-  }
+  //   case 2:
+  //     s->vector_norm = &cuda_vec_norm_2;
+  //     break;
+  // }
 
   /* Link functions */
   s->solve           = &solve_linsys_cudapcg;
@@ -269,29 +269,29 @@ void warm_start_linsys_solver_cudapcg(cudapcg_solver    *s,
 void free_linsys_solver_cudapcg(cudapcg_solver *s) {
 
   if (s) {
-    if (s->polish) c_free(s->h_rho);
+    // if (s->polish) c_free(s->h_rho);
 
     /* PCG iterates */
-    cuda_free((void **) &s->d_x);
-    cuda_free((void **) &s->d_p);
-    cuda_free((void **) &s->d_Kp);
-    cuda_free((void **) &s->d_y);
-    cuda_free((void **) &s->d_r);
-    cuda_free((void **) &s->d_rhs);
-    cuda_free((void **) &s->d_z);
+    // cuda_free((void **) &s->d_x);
+    // cuda_free((void **) &s->d_p);
+    // cuda_free((void **) &s->d_Kp);
+    // cuda_free((void **) &s->d_y);
+    // cuda_free((void **) &s->d_r);
+    // cuda_free((void **) &s->d_rhs);
+    // cuda_free((void **) &s->d_z);
 
     /* Free page-locked host memory */
-    cuda_free_host((void **) &s->h_r_norm);
+    // cuda_free_host((void **) &s->h_r_norm);
 
     /* Device-side scalar values */
-    cuda_free((void **) &s->d_r_norm);
+    // cuda_free((void **) &s->d_r_norm);
 
     /* PCG preconditioner */
-    cuda_free((void **) &s->d_P_diag_val);
-    cuda_free((void **) &s->d_AtA_diag_val);
-    cuda_free((void **) &s->d_AtRA_diag_val);
-    cuda_free((void **) &s->d_diag_precond);
-    cuda_free((void **) &s->d_diag_precond_inv);
+    // cuda_free((void **) &s->d_P_diag_val);
+    // cuda_free((void **) &s->d_AtA_diag_val);
+    // cuda_free((void **) &s->d_AtRA_diag_val);
+    // cuda_free((void **) &s->d_diag_precond);
+    // cuda_free((void **) &s->d_diag_precond_inv);
 
     c_free(s);
   }
