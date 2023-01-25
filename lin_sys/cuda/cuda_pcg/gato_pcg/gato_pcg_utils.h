@@ -9,6 +9,7 @@
 #include <cooperative_groups.h>
 namespace cgrps = cooperative_groups;
 
+namespace gato{
 
 /*******************************************************************************
 *                         csr<->bd format conversion                           *
@@ -219,11 +220,18 @@ void csr_to_custom_C(csr *csrmat,
 }
 
 __global__
-void gato_convert_ktt_format(cudapcg_solver *s, c_float *d_G, c_float *d_C){
+void gato_convert_kkt_format(cudapcg_solver *s, c_float *d_G, c_float *d_C, c_float *d_g){
     
+    // convert C to custom dense format
     csr_to_custom_C(s->A, d_C);
+
+    // convert G to custom dense format
     csr_to_custom_G(s->P, d_G);
-    // TODO: mirror upper triangular matrix
+
+    // copy g into d_g
+    gato_memcpy(d_g, s->d_rhs, (STATE_SIZE+CONTROL_SIZE)*KNOTS-CONTROL_SIZE);
+
+    // TODO: mirror C, G if upper triangular only
 
 }
 
@@ -1000,5 +1008,5 @@ void mat_mat_prod(T *mat_A, T *mat_B, T *out){
 }
 
 
-
+}
 #endif      /* #ifndef PCG_UTILS */

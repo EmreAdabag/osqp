@@ -216,7 +216,7 @@ c_int init_linsys_solver_cudapcg(cudapcg_solver    **sp,
   s->update_rho_vec  = &update_linsys_solver_rho_vec_cudapcg;
 
   /* Initialize PCG preconditioner */
-  if (s->precondition) cuda_pcg_update_precond(s, 1, 1, 1);
+  // if (s->precondition) cuda_pcg_update_precond(s, 1, 1, 1);
 
   /* No error */
   return 0;
@@ -231,7 +231,8 @@ c_int solve_linsys_cudapcg(cudapcg_solver *s,
   c_float eps;
 
   /* Compute the RHS of the reduced KKT system and store it in s->d_rhs */
-  compute_rhs(s, b->d_val);
+  // compute_rhs(s, b->d_val);
+  s->d_rhs = b->d_val;
 
   /* Compute the required solution precision */
   eps = compute_tolerance(s, admm_iter);
@@ -242,6 +243,7 @@ c_int solve_linsys_cudapcg(cudapcg_solver *s,
   /* Copy the first part of the solution to b->d_val */
   cuda_vec_copy_d2d(b->d_val, s->d_x, s->n);
 
+  // TODO: what do we do here?
   if (!s->polish) {
     /* Compute d_z = A * d_x */
     if (s->m) cuda_mat_Axpy(s->A, s->d_x, b->d_val + s->n, 1.0, 0.0);
@@ -297,7 +299,7 @@ void free_linsys_solver_cudapcg(cudapcg_solver *s) {
   }
 }
 
-
+// TODO: updating matrices—For MPC?
 c_int update_linsys_solver_matrices_cudapcg(cudapcg_solver   *s,
                                             const OSQPMatrix *P,
                                             const OSQPMatrix *A) {
@@ -306,7 +308,7 @@ c_int update_linsys_solver_matrices_cudapcg(cudapcg_solver   *s,
   return 0;
 }
 
-
+// TODO: updating matrices—For MPC?
 c_int update_linsys_solver_rho_vec_cudapcg(cudapcg_solver    *s,
                                            const OSQPVectorf *rho_vec,
                                            c_float            rho_sc) {
