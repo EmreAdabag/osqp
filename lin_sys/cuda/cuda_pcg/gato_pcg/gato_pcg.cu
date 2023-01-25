@@ -5,11 +5,9 @@
 #include <cuda.h>
 #include <cooperative_groups.h>
 
-
+namespace cgrps = cooperative_groups;
 
 namespace gato{
-
-namespace cgrps = cooperative_groups;
 
 /*******************************************************************************
 *                        private functions pcg init                            *
@@ -25,7 +23,7 @@ namespace cgrps = cooperative_groups;
 //  d_temp
 //  d_dynMem_const
 //  dt
-//  BLOCKNO             matrix block number, NOT threadblock number (that is GATO_BLOCK_ID)
+//  blockrow             matrix block number, NOT threadblock number (that is GATO_BLOCK_ID)
 
 
 __device__
@@ -35,11 +33,11 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
     //  SPACE ALLOCATION IN SHARED MEM
     //  | phi_k | theta_k | thetaInv_k | gamma_k | block-specific...
     //     s^2      s^2         s^2         s
-    T *s_phi_k = s_temp; 	                            	    // phi_k        states^2
-    T *s_theta_k = s_phi_k + STATES_SQ; 			            // theta_k      states^2
-    T *s_thetaInv_k = s_theta_k + STATES_SQ; 			        // thetaInv_k   states^2
-    T *s_gamma_k = s_thetaInv_k + STATES_SQ;                       // gamma_k      states
-    T *s_end_main = s_gamma_k + STATE_SIZE;                               
+    c_float *s_phi_k = s_temp; 	                            	    // phi_k        states^2
+    c_float *s_theta_k = s_phi_k + STATES_SQ; 			            // theta_k      states^2
+    c_float *s_thetaInv_k = s_theta_k + STATES_SQ; 			        // thetaInv_k   states^2
+    c_float *s_gamma_k = s_thetaInv_k + STATES_SQ;                       // gamma_k      states
+    c_float *s_end_main = s_gamma_k + STATE_SIZE;                               
 
     if(blockrow==0){
 
@@ -47,42 +45,42 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         //  ...gamma_k | . | Q_N_I | q_N | . | Q_0_I | q_0 | scatch
         //              s^2   s^2     s   s^2   s^2     s      ? 
     
-        T *s_QN = s_end_main;
-        T *s_QN_i = s_QN + STATE_SIZE * STATE_SIZE;
-        T *s_qN = s_QN_i + STATE_SIZE * STATE_SIZE;
-        T *s_Q0 = s_qN + STATE_SIZE;
-        T *s_Q0_i = s_Q0 + STATE_SIZE * STATE_SIZE;
-        T *s_q0 = s_Q0_i + STATE_SIZE * STATE_SIZE;
-        T *s_end = s_q0 + STATE_SIZE;
+        c_float *s_QN = s_end_main;
+        c_float *s_QN_i = s_QN + STATE_SIZE * STATE_SIZE;
+        c_float *s_qN = s_QN_i + STATE_SIZE * STATE_SIZE;
+        c_float *s_Q0 = s_qN + STATE_SIZE;
+        c_float *s_Q0_i = s_Q0 + STATE_SIZE * STATE_SIZE;
+        c_float *s_q0 = s_Q0_i + STATE_SIZE * STATE_SIZE;
+        c_float *s_end = s_q0 + STATE_SIZE;
 
         // scratch space
-        T *s_integrator_error = s_end;					
-        T *s_R_not_needed = s_integrator_error + STATE_SIZE;
-        T *s_r_not_needed = s_R_not_needed + CONTROL_SIZE * CONTROL_SIZE;
-        T *s_extra_temp = s_r_not_needed + CONTROL_SIZE * CONTROL_SIZE;
+        c_float *s_integrator_error = s_end;					
+        c_float *s_R_not_needed = s_integrator_error + STATE_SIZE;
+        c_float *s_r_not_needed = s_R_not_needed + CONTROL_SIZE * CONTROL_SIZE;
+        c_float *s_extra_temp = s_r_not_needed + CONTROL_SIZE * CONTROL_SIZE;
 
         __syncthreads();//----------------------------------------------------------------
 
         // TODO: make gato_memcpy
-        gato_memcpy(s_Q0, d_G, STATES_SQ);
-        gato_memcpy(s_QN, d_G+(KNOT_POINTS-1)*(STATES_SQ+CONTROLS_SQ), STATES_SQ);
-        gato_memcpy(s_q0, d_g, STATE_SIZE);
-        gato_memcpy(s_qN, d_g+(KNOT_POINTS-1)*(STATE_SIZE+CONTROL_SIZE), STATE_SIZE);
+        gato_memcpy(s_Q0, d_G, STATES_SQ*sizeof(c_float));
+        gato_memcpy(s_QN, d_G+(KNOT_POINTS-1)*(STATES_SQ+CONTROLS_SQ), STATES_SQ*sizeof(c_float));
+        gato_memcpy(s_q0, d_g, STATE_SIZE*sizeof(c_float));
+        gato_memcpy(s_qN, d_g+(KNOT_POINTS-1)*(STATE_SIZE+CONTROL_SIZE), STATE_SIZE*sizeof(c_float));
 
         __syncthreads();//----------------------------------------------------------------
 
 
         // if(PRINT_THREAD){
         //     printf("Q0\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Q0,STATE_SIZE);
+        //     printMat<c_float,STATE_SIZE,STATE_SIZE>(s_Q0,STATE_SIZE);
         //     printf("q0\n");
-        //     printMat<T,1,STATE_SIZE>(s_q0,1);
+        //     printMat<c_float,1,STATE_SIZE>(s_q0,1);
         //     printf("QN\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_QN,STATE_SIZE);
+        //     printMat<c_float,STATE_SIZE,STATE_SIZE>(s_QN,STATE_SIZE);
         //     printf("qN\n");
-        //     printMat<T,1,STATE_SIZE>(s_qN,1);
+        //     printMat<c_float,1,STATE_SIZE>(s_qN,1);
         //     printf("start error\n");
-        //     printMat<T,1,STATE_SIZE>(s_integrator_error,1);
+        //     printMat<c_float,1,STATE_SIZE>(s_integrator_error,1);
         //     printf("\n");
         // }
         __syncthreads();//----------------------------------------------------------------
@@ -92,33 +90,33 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         
 
         // save -Q_0 in PhiInv spot 00
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_Q0,                       // src     
-            d_PhiInv,                   // dst         
+            d_Pinv,                   // dst         
             1,                          // col
-            BLOCKNO,                    // BLOCKNO
+            blockrow,                    // blockrow
             -1                          //  multiplier
         );
         __syncthreads();//----------------------------------------------------------------
 
 
         // invert Q_N, Q_0
-        loadIdentity<T,STATE_SIZE,STATE_SIZE>(s_Q0_i, s_QN_i);
+        loadIdentity<c_float, STATE_SIZE,STATE_SIZE>(s_Q0_i, s_QN_i);
         __syncthreads();//----------------------------------------------------------------
-        invertMatrix<T,STATE_SIZE,STATE_SIZE,STATE_SIZE>(s_Q0, s_QN, s_extra_temp);
+        invertMatrix<c_float, STATE_SIZE,STATE_SIZE,STATE_SIZE>(s_Q0, s_QN, s_extra_temp);
         
         __syncthreads();//----------------------------------------------------------------
 
 
         // if(PRINT_THREAD){
         //     printf("Q0Inv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Q0_i,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_Q0_i,STATE_SIZE);
         //     printf("QNInv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_QN_i,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_QN_i,STATE_SIZE);
         //     printf("theta\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_theta_k,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_theta_k,STATE_SIZE);
         //     printf("thetaInv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_thetaInv_k,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_thetaInv_k,STATE_SIZE);
         //     printf("\n");
         // }
         __syncthreads();//----------------------------------------------------------------
@@ -128,7 +126,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         
 
         // compute gamma
-        mat_vec_prod<T, STATE_SIZE, STATE_SIZE>(
+        mat_vec_prod<c_float, STATE_SIZE, STATE_SIZE>(
             s_Q0_i,                                    
             s_q0,                                       
             s_gamma_k 
@@ -137,18 +135,18 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         
 
         // save -Q0_i in spot 00 in S
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_Q0_i,                         // src             
             d_S,                            // dst              
             1,                              // col   
-            BLOCKNO,                        // BLOCKNO         
+            blockrow,                        // blockrow         
             -1                              //  multiplier   
         );
         __syncthreads();//----------------------------------------------------------------
 
 
         // compute Q0^{-1}q0
-        mat_vec_prod<T, STATE_SIZE, STATE_SIZE>(
+        mat_vec_prod<c_float, STATE_SIZE, STATE_SIZE>(
             s_Q0_i,
             s_q0,
             s_Q0
@@ -167,7 +165,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         __syncthreads();//----------------------------------------------------------------
 
     }
-    else{                       // BLOCKNO!=LEAD_BLOCK
+    else{                       // blockrow!=LEAD_BLOCK
 
 
         const unsigned C_set_size = STATES_SQ+STATES_P_CONTROLS;
@@ -177,31 +175,31 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         //  ...gamma_k | A_k | B_k | . | Q_k_I | . | Q_k+1_I | . | R_k_I | q_k | q_k+1 | r_k | integrator_error | extra_temp
         //               s^2   s*c  s^2   s^2   s^2    s^2    s^2   s^2     s      s      s          s                <s^2?
 
-        T *s_Ak = s_end_main; 								
-        T *s_Bk = s_Ak +        STATES_SQ;
-        T *s_Qk = s_Bk +        STATE_SIZE*CONTROL_SIZE; 	
-        T *s_Qk_i = s_Qk +      STATES_SQ;	
-        T *s_Qkp1 = s_Qk_i +    STATES_SQ;
-        T *s_Qkp1_i = s_Qkp1 +  STATES_SQ;
-        T *s_Rk = s_Qkp1_i +    STATES_SQ;
-        T *s_Rk_i = s_Rk +      CONTROLS_SQ;
-        T *s_qk = s_Rk_i +      CONTROLS_SQ; 	
-        T *s_qkp1 = s_qk +      STATE_SIZE; 			
-        T *s_rk = s_qkp1 +      STATE_SIZE;
-        T *s_end = s_rk +       CONTROL_SIZE;
+        c_float *s_Ak = s_end_main; 								
+        c_float *s_Bk = s_Ak +        STATES_SQ;
+        c_float *s_Qk = s_Bk +        STATE_SIZE*CONTROL_SIZE; 	
+        c_float *s_Qk_i = s_Qk +      STATES_SQ;	
+        c_float *s_Qkp1 = s_Qk_i +    STATES_SQ;
+        c_float *s_Qkp1_i = s_Qkp1 +  STATES_SQ;
+        c_float *s_Rk = s_Qkp1_i +    STATES_SQ;
+        c_float *s_Rk_i = s_Rk +      CONTROLS_SQ;
+        c_float *s_qk = s_Rk_i +      CONTROLS_SQ; 	
+        c_float *s_qkp1 = s_qk +      STATE_SIZE; 			
+        c_float *s_rk = s_qkp1 +      STATE_SIZE;
+        c_float *s_end = s_rk +       CONTROL_SIZE;
         
         // scratch
-        T *s_integrator_error = s_end; 	
-        T *s_extra_temp = s_integrator_error + STATE_SIZE;      // s_extra_temp size: max(2*STATES+1, 2*CONTROLS+1)
+        c_float *s_integrator_error = s_end; 	
+        c_float *s_extra_temp = s_integrator_error + STATE_SIZE;      // s_extra_temp size: max(2*STATES+1, 2*CONTROLS+1)
         
 
         // if(PRINT_THREAD){
         //     printf("xk\n");
-        //     printMat<T,1,STATE_SIZE>(s_xux,1);
+        //     printMat<c_float1,STATE_SIZE>(s_xux,1);
         //     printf("uk\n");
-        //     printMat<T,1,CONTROL_SIZE>(&s_xux[STATE_SIZE],1);
+        //     printMat<c_float1,CONTROL_SIZE>(&s_xux[STATE_SIZE],1);
         //     printf("xkp1\n");
-        //     printMat<T,1,STATE_SIZE>(&s_xux[STATE_SIZE+CONTROL_SIZE],1);
+        //     printMat<c_float1,STATE_SIZE>(&s_xux[STATE_SIZE+CONTROL_SIZE],1);
         //     printf("\n");
         // }
 
@@ -221,36 +219,36 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
     
         // if(PRINT_THREAD){
         //     printf("Ak\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Ak,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_Ak,STATE_SIZE);
         //     printf("Bk\n");
-        //     printMat<T,STATE_SIZE,CONTROL_SIZE>(s_Bk,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,CONTROL_SIZE>(s_Bk,STATE_SIZE);
         //     printf("Qk\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Qk,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_Qk,STATE_SIZE);
         //     printf("Rk\n");
-        //     printMat<T,CONTROL_SIZE,CONTROL_SIZE>(s_Rk,CONTROL_SIZE);
+        //     printMat<c_floatCONTROL_SIZE,CONTROL_SIZE>(s_Rk,CONTROL_SIZE);
         //     printf("qk\n");
-        //     printMat<T,1,STATE_SIZE>(s_qk,1);
+        //     printMat<c_float1,STATE_SIZE>(s_qk,1);
         //     printf("rk\n");
-        //     printMat<T,1,CONTROL_SIZE>(s_rk,1);
+        //     printMat<c_float1,CONTROL_SIZE>(s_rk,1);
         //     printf("Qkp1\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Qkp1,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_Qkp1,STATE_SIZE);
         //     printf("qkp1\n");
-        //     printMat<T,1,STATE_SIZE>(s_qkp1,1);
+        //     printMat<c_float1,STATE_SIZE>(s_qkp1,1);
         //     printf("integrator error\n");
-        //     printMat<T,1,STATE_SIZE>(s_integrator_error,1);
+        //     printMat<c_float1,STATE_SIZE>(s_integrator_error,1);
         //     printf("\n");
         // }
         __syncthreads();//----------------------------------------------------------------
 
 
         // Invert Q, Qp1, R
-        loadIdentity<T,STATE_SIZE,STATE_SIZE,CONTROL_SIZE>(
+        loadIdentity<c_float, STATE_SIZE,STATE_SIZE,CONTROL_SIZE>(
             s_Qk_i, 
             s_Qkp1_i, 
             s_Rk_i
         );
         __syncthreads();//----------------------------------------------------------------
-        invertMatrix<T,STATE_SIZE,STATE_SIZE,CONTROL_SIZE,STATE_SIZE>(
+        invertMatrix<c_float, STATE_SIZE,STATE_SIZE,CONTROL_SIZE,STATE_SIZE>(
             s_Qk, 
             s_Qkp1, 
             s_Rk, 
@@ -261,11 +259,11 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
         // if(PRINT_THREAD){
         //     printf("Qk\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Qk_i,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_Qk_i,STATE_SIZE);
         //     printf("RkInv\n");
-        //     printMat<T,CONTROL_SIZE,CONTROL_SIZE>(s_Rk_i,CONTROL_SIZE);
+        //     printMat<c_floatCONTROL_SIZE,CONTROL_SIZE>(s_Rk_i,CONTROL_SIZE);
         //     printf("Qkp1Inv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Qkp1_i,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_Qkp1_i,STATE_SIZE);
         //     printf("\n");
         // }
         __syncthreads();//----------------------------------------------------------------
@@ -275,7 +273,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
 
         // Compute AQ^{-1} in phi
-        mat_mat_prod<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
+        mat_mat_prod<c_float, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
             s_Ak,
             s_Qk_i,
             s_phi_k
@@ -284,7 +282,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         __syncthreads();//----------------------------------------------------------------
 
         // Compute BR^{-1} in Qkp1
-        mat_mat_prod<T, STATE_SIZE, CONTROL_SIZE, CONTROL_SIZE, CONTROL_SIZE, false>(
+        mat_mat_prod<c_float, STATE_SIZE, CONTROL_SIZE, CONTROL_SIZE, CONTROL_SIZE, false>(
             s_Bk,
             s_Rk_i,
             s_Qkp1
@@ -297,7 +295,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
 
         // compute Q_{k+1}^{-1}q_{k+1} - IntegratorError in gamma
-        mat_vec_prod<T, STATE_SIZE, STATE_SIZE>(
+        mat_vec_prod<c_float, STATE_SIZE, STATE_SIZE>(
             s_Qkp1_i,
             s_qkp1,
             s_gamma_k
@@ -310,18 +308,18 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
         // if(PRINT_THREAD){
         //     printf("AQinv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_phi_k,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_phi_k,STATE_SIZE);
         //     printf("BRinv\n");
-        //     printMat<T,STATE_SIZE,CONTROL_SIZE>(s_Qkp1,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,CONTROL_SIZE>(s_Qkp1,STATE_SIZE);
         //     printf("Qpinv*qp\n");
-        //     printMat<T,1,STATE_SIZE>(s_gamma_k,1);
+        //     printMat<c_float1,STATE_SIZE>(s_gamma_k,1);
         //     printf("\n");
         // }
 
         __syncthreads();//----------------------------------------------------------------
 
         // compute AQ^{-1}q for gamma         temp storage in Rk
-        mat_vec_prod<T, STATE_SIZE, STATE_SIZE>(
+        mat_vec_prod<c_float, STATE_SIZE, STATE_SIZE>(
             s_phi_k,
             s_qk,
             s_Rk
@@ -330,7 +328,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
         __syncthreads();//----------------------------------------------------------------
         
         // compute BR^{-1}r for gamma           temp storage in Qk
-        mat_vec_prod<T, STATE_SIZE, CONTROL_SIZE>(
+        mat_vec_prod<c_float, STATE_SIZE, CONTROL_SIZE>(
             s_Qkp1,
             s_rk,
             s_Qk
@@ -347,17 +345,17 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
         // if(PRINT_THREAD){
         //     printf("BRinvB\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_BRB,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_BRB,STATE_SIZE);
         //     printf("s_BRr\n");
-        //     printMat<T,1,STATE_SIZE>(s_BRr,1);
+        //     printMat<c_float1,STATE_SIZE>(s_BRr,1);
         //     printf("AQinvA + Qkp1Inv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_Qkp1Inv,STATE_SIZE);
+        //     printMat<c_floatSTATE_SIZE,STATE_SIZE>(s_Qkp1Inv,STATE_SIZE);
         //     printf("Qpinv*qk - AQq\n");
-        //     printMat<T,1,STATE_SIZE>(s_gamma_k,1);
+        //     printMat<c_float,1,STATE_SIZE>(s_gamma_k,1);
         //     printf("AQinv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_AQ,STATE_SIZE);
+        //     printMat<c_float,STATE_SIZE,STATE_SIZE>(s_AQ,STATE_SIZE);
         //     printf("memory in phi_k\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_phi_k,STATE_SIZE);
+        //     printMat<c_float,STATE_SIZE,STATE_SIZE>(s_phi_k,STATE_SIZE);
         //     printf("\n");
         // }
         // __syncthreads();//----------------------------------------------------------------
@@ -368,7 +366,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
 
         // compute AQ^{-1}A   +   Qkp1^{-1} for theta
-        mat_mat_prod<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, true>(
+        mat_mat_prod<c_float, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, true>(
             s_phi_k,
             s_Ak,
             s_theta_k
@@ -383,7 +381,7 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
 
         // compute BR^{-1}BT for theta            temp storage in Rk
-        mat_mat_prod<T, STATE_SIZE, CONTROL_SIZE, STATE_SIZE, CONTROL_SIZE, true>(
+        mat_mat_prod<c_float, STATE_SIZE, CONTROL_SIZE, STATE_SIZE, CONTROL_SIZE, true>(
             s_Qkp1,
             s_Bk,
             s_Rk
@@ -399,11 +397,11 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
         // if(PRINT_THREAD){
         //     printf("theta = -BRinvB - AQinvA - Qkp1Inv\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_theta_k,STATE_SIZE);
+        //     printMat<c_float,STATE_SIZE,STATE_SIZE>(s_theta_k,STATE_SIZE);
         //     printf("phi = AQ (before negation)\n");
-        //     printMat<T,STATE_SIZE,STATE_SIZE>(s_phi_k,STATE_SIZE);
+        //     printMat<c_float,STATE_SIZE,STATE_SIZE>(s_phi_k,STATE_SIZE);
         //     printf("gamma = Qpinv*qk - AQq -BRr\n");
-        //     printMat<T,1,STATE_SIZE>(s_gamma_k,1);
+        //     printMat<c_float,1,STATE_SIZE>(s_gamma_k,1);
         // }
         __syncthreads();//----------------------------------------------------------------
 
@@ -412,47 +410,47 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
 
         // save -phi_k into left off-diagonal of S, 
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_phi_k,                        // src             
             d_S,                            // dst             
             0,                              // col
-            BLOCKNO,                        // BLOCKNO    
+            blockrow,                        // blockrow    
             1
         );
         __syncthreads();//----------------------------------------------------------------
 
 
         // save -theta_k main diagonal S
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_theta_k,                                               
             d_S,                                                 
             1,                                               
-            BLOCKNO,
+            blockrow,
             -1                                              
         );          
         __syncthreads();//----------------------------------------------------------------
 
 #if BLOCK_J_PRECON || SS_PRECON
         // invert theta
-        loadIdentity<T,STATE_SIZE>(s_thetaInv_k);
+        loadIdentity<c_float,STATE_SIZE>(s_thetaInv_k);
         __syncthreads();//----------------------------------------------------------------
-        invertMatrix<T,STATE_SIZE>(s_theta_k, s_extra_temp);
+        invertMatrix<c_float,STATE_SIZE>(s_theta_k, s_extra_temp);
         __syncthreads();//----------------------------------------------------------------
 
 
         // save thetaInv_k main diagonal PhiInv
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_thetaInv_k, 
-            d_PhiInv,
+            d_Pinv,
             1,
-            BLOCKNO,
+            blockrow,
             -1
         );
 #else /* BLOCK_J_PRECONDITIONER || SS_PRECONDITIONER  */
 
         // save 1 / diagonal to PhiInv
         for(int i = GATO_THREAD_ID; i < STATE_SIZE; i+=GATO_THREADS_PER_BLOCK){
-            d_PhiInv[BLOCKNO*(3*STATES_SQ)+STATES_SQ+i*STATE_SIZE+i]= 1 / d_S[BLOCKNO*(3*STATES_SQ)+STATES_SQ+i*STATE_SIZE+i]; 
+            d_Pinv[blockrow*(3*STATES_SQ)+STATES_SQ+i*STATE_SIZE+i]= 1 / d_S[blockrow*(3*STATES_SQ)+STATES_SQ+i*STATE_SIZE+i]; 
         }
 #endif /* BLOCK_J_PRECONDITIONER || SS_PRECONDITIONER  */
         
@@ -461,24 +459,24 @@ void gato_form_schur_jacobi_inner(c_float *d_G, c_float *d_C, c_float *d_g,c_flo
 
         // save gamma_k in gamma
         for(unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
-            unsigned offset = (BLOCKNO)*STATE_SIZE + ind;
+            unsigned offset = (blockrow)*STATE_SIZE + ind;
             d_gamma[offset] = s_gamma_k[ind]*-1;
         }
 
         __syncthreads();//----------------------------------------------------------------
 
         //invert phi_k
-        loadIdentity<T,STATE_SIZE>(s_Ak);
+        loadIdentity<c_float,STATE_SIZE>(s_Ak);
         __syncthreads();//----------------------------------------------------------------
-        mat_mat_prod<T,STATE_SIZE,STATE_SIZE,STATE_SIZE,STATE_SIZE, true>(s_Ak,s_phi_k,s_Bk);
+        mat_mat_prod<c_float,STATE_SIZE,STATE_SIZE,STATE_SIZE,STATE_SIZE, true>(s_Ak,s_phi_k,s_Bk);
         __syncthreads();//----------------------------------------------------------------
 
         // save phi_k_T into right off-diagonal of S,
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_Bk,                        // src             
             d_S,                            // dst             
             2,                              // col
-            BLOCKNO-1                        // BLOCKNO    
+            blockrow-1                        // blockrow    
         );
 
         __syncthreads();//----------------------------------------------------------------
@@ -499,22 +497,22 @@ gato_form_ss_inner(c_float *s_temp, c_float *d_S, c_float *d_Pinv, c_float *d_ga
 
     // GOAL SPACE ALLOCATION IN SHARED MEM
     // s_temp  = | phi_k_T | phi_k | phi_kp1 | thetaInv_k | thetaInv_kp1 | thetaInv_km1 | PhiInv_R | PhiInv_L | scratch
-    T *s_phi_k = s_temp;
-    T *s_phi_kp1_T = s_phi_k + STATES_SQ;
-    T *s_thetaInv_k = s_phi_kp1_T + STATES_SQ;
-    T *s_thetaInv_km1 = s_thetaInv_k + STATES_SQ;
-    T *s_thetaInv_kp1 = s_thetaInv_km1 + STATES_SQ;
-    T *s_PhiInv_k_R = s_thetaInv_kp1 + STATES_SQ;
-    T *s_PhiInv_k_L = s_PhiInv_k_R + STATES_SQ;
-    T *s_scratch = s_PhiInv_k_L + STATES_SQ;
+    c_float *s_phi_k = s_temp;
+    c_float *s_phi_kp1_T = s_phi_k + STATES_SQ;
+    c_float *s_thetaInv_k = s_phi_kp1_T + STATES_SQ;
+    c_float *s_thetaInv_km1 = s_thetaInv_k + STATES_SQ;
+    c_float *s_thetaInv_kp1 = s_thetaInv_km1 + STATES_SQ;
+    c_float *s_PhiInv_k_R = s_thetaInv_kp1 + STATES_SQ;
+    c_float *s_PhiInv_k_L = s_PhiInv_k_R + STATES_SQ;
+    c_float *s_scratch = s_PhiInv_k_L + STATES_SQ;
 
      // load phi_kp1_T
-     if(BLOCKNO!=LAST_BLOCK){
-        loadblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+     if(blockrow!=LAST_BLOCK){
+        loadblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             d_S,                // src
             s_phi_kp1_T,        // dst
             0,                  // block column (0, 1, or 2)
-            BLOCKNO+1,          // block row
+            blockrow+1,          // block row
             true                // transpose
         );
     }
@@ -522,12 +520,12 @@ gato_form_ss_inner(c_float *s_temp, c_float *d_S, c_float *d_Pinv, c_float *d_ga
     __syncthreads();//----------------------------------------------------------------
 
     // load phi_k
-    if(BLOCKNO!=LEAD_BLOCK){
-        loadblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+    if(blockrow!=LEAD_BLOCK){
+        loadblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             d_S,
             s_phi_k,
             0,
-            BLOCKNO
+            blockrow
         );
     }
     
@@ -535,50 +533,50 @@ gato_form_ss_inner(c_float *s_temp, c_float *d_S, c_float *d_Pinv, c_float *d_ga
 
 
     // load thetaInv_k
-    loadblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
-        d_PhiInv,
+    loadblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
+        d_Pinv,
         s_thetaInv_k,
         1,
-        BLOCKNO
+        blockrow
     );
 
     __syncthreads();//----------------------------------------------------------------
 
     // load thetaInv_km1
-    if(BLOCKNO!=LEAD_BLOCK){
-        loadblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
-            d_PhiInv,
+    if(blockrow!=LEAD_BLOCK){
+        loadblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
+            d_Pinv,
             s_thetaInv_km1,
             1,
-            BLOCKNO-1
+            blockrow-1
         );
     }
 
     __syncthreads();//----------------------------------------------------------------
 
     // load thetaInv_kp1
-    if(BLOCKNO!=LAST_BLOCK){
-        loadblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
-            d_PhiInv,
+    if(blockrow!=LAST_BLOCK){
+        loadblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
+            d_Pinv,
             s_thetaInv_kp1,
             1,
-            BLOCKNO+1
+            blockrow+1
         );
     }
     
 
     __syncthreads();//----------------------------------------------------------------
 
-    if(BLOCKNO!=LEAD_BLOCK){
+    if(blockrow!=LEAD_BLOCK){
 
         // compute left off diag    
-        mat_mat_prod<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
+        mat_mat_prod<c_float, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
             s_thetaInv_k,
             s_phi_k,
             s_scratch                                     
         );
         __syncthreads();//----------------------------------------------------------------
-        mat_mat_prod<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
+        mat_mat_prod<c_float, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
             s_scratch,
             s_thetaInv_km1,
             s_PhiInv_k_L 
@@ -586,28 +584,28 @@ gato_form_ss_inner(c_float *s_temp, c_float *d_S, c_float *d_Pinv, c_float *d_ga
         __syncthreads();//----------------------------------------------------------------
 
         // store left diagonal in Phi
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_PhiInv_k_L, 
-            d_PhiInv,
+            d_Pinv,
             0,
-            BLOCKNO,
+            blockrow,
             -1
         );
         __syncthreads();//----------------------------------------------------------------
     }
 
 
-    if(BLOCKNO!=LAST_BLOCK){
+    if(blockrow!=LAST_BLOCK){
 
         // should do transpose here
         // calculate Phi right diag
-        mat_mat_prod<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
+        mat_mat_prod<c_float, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
             s_thetaInv_k,
             s_phi_kp1_T,
             s_scratch                                     
         );
         __syncthreads();//----------------------------------------------------------------
-        mat_mat_prod<T, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
+        mat_mat_prod<c_float, STATE_SIZE, STATE_SIZE, STATE_SIZE, STATE_SIZE, false>(
             s_scratch,
             s_thetaInv_kp1,
             s_PhiInv_k_R
@@ -616,11 +614,11 @@ gato_form_ss_inner(c_float *s_temp, c_float *d_S, c_float *d_Pinv, c_float *d_ga
 
 
         // store Phi right diag
-        storeblock_funnyformat<T, STATE_SIZE, KNOT_POINTS>(
+        storeblock_funnyformat<c_float, STATE_SIZE, KNOT_POINTS>(
             s_PhiInv_k_R, 
-            d_PhiInv,
+            d_Pinv,
             2,
-            BLOCKNO,
+            blockrow,
             -1
         );
     }
@@ -688,33 +686,33 @@ void gato_form_schur_jacobi(c_float *d_G,
 *                        private functions pcg solve                           *
 *******************************************************************************/
 
-template <typename T, unsigned STATE_SIZE, unsigned PRECONDITIONER_BANDWITH = 3, unsigned N, bool USE_TRACE = false>
+template<typename T, unsigned PRECONDITIONER_BANDWITH = 3, unsigned N, bool USE_TRACE = false>
 __device__
-void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local constant temporary variable inputs
-                        T *d_lambda, T *d_r, T *d_p, T *d_v, T *d_eta_new, T *d_r_tilde, T *d_upsilon,	// global vectors and scalars
-                        T *s_temp, T exitTol, unsigned maxIters, 			    // shared mem for use in CG step and constants
+void parallelPCG_inner_fixed(c_float *d_S, c_float *d_pinv, c_float *d_gamma,  				// block-local constant temporary variable inputs
+                        c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new, c_float *d_r_tilde, c_float *d_upsilon,	// global vectors and scalars
+                        c_float *s_temp, T exitTol, unsigned maxIters, 			    // shared mem for use in CG step and constants
                         cgrps::thread_block block, cgrps::grid_group grid){
-
+                            
     //Initialise shared memory
-    T *s_lambda = s_temp;
-    T *s_r_tilde = s_lambda + STATE_SIZE;
-    T *s_upsilon = s_r_tilde + STATE_SIZE;
-    T *s_v_b = s_upsilon + STATE_SIZE;
-    T *s_eta_new_b = s_v_b + STATE_SIZE;
+    c_float *s_lambda = s_temp;
+    c_float *s_r_tilde = s_lambda + STATE_SIZE;
+    c_float *s_upsilon = s_r_tilde + STATE_SIZE;
+    c_float *s_v_b = s_upsilon + STATE_SIZE;
+    c_float *s_eta_new_b = s_v_b + STATE_SIZE;
 
-    T *s_r = s_eta_new_b + STATE_SIZE;
-    T *s_p = s_r + 3*STATE_SIZE;
+    c_float *s_r = s_eta_new_b + STATE_SIZE;
+    c_float *s_p = s_r + 3*STATE_SIZE;
 
-    T *s_r_b = s_r + STATE_SIZE;
-    T *s_p_b = s_p + STATE_SIZE;
+    c_float *s_r_b = s_r + STATE_SIZE;
+    c_float *s_p_b = s_p + STATE_SIZE;
 
     T alpha, beta;
     T eta = static_cast<T>(0);	T eta_new = static_cast<T>(0);
 
-    // Need to initialise *s_S, T *s_pinv, T *s_gamma and input all required as dynamic memory
-    T *s_S = s_p + 3 * STATE_SIZE;
-    T *s_pinv = s_S + 3*STATE_SIZE*STATE_SIZE;
-    T *s_gamma = s_pinv + 3*STATE_SIZE*STATE_SIZE;
+    // Need to initialise *s_S, c_float *s_pinv, c_float *s_gamma and input all required as dynamic memory
+    c_float *s_S = s_p + 3 * STATE_SIZE;
+    c_float *s_pinv = s_S + 3*STATE_SIZE*STATE_SIZE;
+    c_float *s_gamma = s_pinv + 3*STATE_SIZE*STATE_SIZE;
 
     // Used when writing to device memory
     int bIndStateSize;
@@ -745,7 +743,7 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
     // Need to sync before loading from other blocks
     grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
     // if(GATO_LEAD_THREAD && GATO_LEAD_BLOCK){
-    //         print_raw_shared_vector<T,STATE_SIZE*N>(d_r);
+    //         print_raw_shared_vector<c_float,STATE_SIZE*N>(d_r);
     // }
     // grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
     
@@ -756,12 +754,12 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
         for (unsigned ind= GATO_THREAD_ID; ind < 3*STATE_SIZE*STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
             s_pinv[ind] = d_pinv[bIndStateSize*STATE_SIZE*3 + ind]; 
         }
-        loadBlockTriDiagonal_offDiagonal_fixed<T,STATE_SIZE, N>(s_r,&d_r[bIndStateSize],block_number,block,grid);
+        loadBlockTriDiagonal_offDiagonal_fixed<c_float,STATE_SIZE, N>(s_r,&d_r[bIndStateSize],block_number,block,grid);
         block.sync();
-        matVecMultBlockTriDiagonal_fixed<T,STATE_SIZE, N>(s_r_tilde,s_pinv,s_r,block_number,block,grid);
+        matVecMultBlockTriDiagonal_fixed<c_float,STATE_SIZE, N>(s_r_tilde,s_pinv,s_r,block_number,block,grid);
         block.sync();
 
-        dotProd<T,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_tilde,block);
+        dotProd<c_float,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_tilde,block);
         block.sync();
 
         // We copy p from r_tilde and write to device, since it will be required by other blocks
@@ -800,11 +798,11 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
             block.sync();
 
 
-            loadBlockTriDiagonal_offDiagonal_fixed<T,STATE_SIZE,N>(s_p,&d_p[bIndStateSize],block_number,block,grid);
+            loadBlockTriDiagonal_offDiagonal_fixed<c_float,STATE_SIZE,N>(s_p,&d_p[bIndStateSize],block_number,block,grid);
             block.sync();
-            matVecMultBlockTriDiagonal_fixed<T,STATE_SIZE,N>(s_upsilon,s_S,s_p,block_number,block,grid);
+            matVecMultBlockTriDiagonal_fixed<c_float,STATE_SIZE,N>(s_upsilon,s_S,s_p,block_number,block,grid);
             block.sync();
-            dotProd<T,STATE_SIZE>(s_v_b,s_p_b,s_upsilon,block);
+            dotProd<c_float,STATE_SIZE>(s_v_b,s_p_b,s_upsilon,block);
             block.sync();
 
             // only upsilon needs to be written to device memory
@@ -860,11 +858,11 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
                 s_pinv[ind] = d_pinv[bIndStateSize * STATE_SIZE * 3 + ind]; 
             }
 
-            loadBlockTriDiagonal_offDiagonal_fixed<T,STATE_SIZE,N>(s_r,&d_r[bIndStateSize],block_number,block,grid);
+            loadBlockTriDiagonal_offDiagonal_fixed<c_float,STATE_SIZE,N>(s_r,&d_r[bIndStateSize],block_number,block,grid);
             block.sync();
-            matVecMultBlockTriDiagonal_fixed<T,STATE_SIZE,N>(s_r_tilde,s_pinv,s_r,block_number,block,grid);
+            matVecMultBlockTriDiagonal_fixed<c_float,STATE_SIZE,N>(s_r_tilde,s_pinv,s_r,block_number,block,grid);
             block.sync();
-            dotProd<T,STATE_SIZE>(s_eta_new_b,s_r_tilde,s_r_b,block);
+            dotProd<c_float,STATE_SIZE>(s_eta_new_b,s_r_tilde,s_r_b,block);
             block.sync();
             // write back r_tilde
             for (unsigned ind = GATO_THREAD_ID; ind < STATE_SIZE; ind += GATO_THREADS_PER_BLOCK){
@@ -919,10 +917,10 @@ void parallelPCG_inner_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local 
     
 }
 
-template <typename T, unsigned STATE_SIZE, unsigned PRECONDITIONER_BANDWITH = 3, unsigned N, bool USE_TRACE = false>
+template<typename T, unsigned PRECONDITIONER_BANDWITH = 3, unsigned N, bool USE_TRACE = false>
 __global__
-void parallelPCG_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local constant temporary variable inputs
-                        T *d_lambda, T *d_r, T *d_p, T *d_v, T *d_eta_new, T *d_r_tilde, T *d_upsilon,	// global vectors and scalars
+void parallelPCG_fixed(c_float *d_S, c_float *d_pinv, c_float *d_gamma,  				// block-local constant temporary variable inputs
+                        c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new, c_float *d_r_tilde, c_float *d_upsilon,	// global vectors and scalars
                          T exitTol=1e-6, unsigned maxIters=100			    // shared mem for use in CG step and constants 
                          ){
 
@@ -936,24 +934,24 @@ void parallelPCG_fixed(T *d_S, T *d_pinv, T *d_gamma,  				// block-local consta
     grid.sync();
 }
 
-template <typename T, unsigned STATE_SIZE, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
+template <typename T, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
 __device__
-void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local constant temporary variable inputs
-                        T *d_lambda, T *d_r, T *d_p, T *d_v, T *d_eta_new,	// global vectors and scalars
-                        T *s_temp, T exitTol, unsigned maxIters,			    // shared mem for use in CG step and constants
+void parallelPCG_inner(c_float *s_S, c_float *s_pinv, c_float *s_gamma,  				// block-local constant temporary variable inputs
+                        c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new,	// global vectors and scalars
+                        c_float *s_temp, T exitTol, unsigned maxIters,			    // shared mem for use in CG step and constants
                         cgrps::thread_block block, cgrps::grid_group grid){                      
     //Initialise shared memory
-    T *s_lambda = s_temp;
-    T *s_r_tilde = s_lambda + STATE_SIZE;
-    T *s_upsilon = s_r_tilde + STATE_SIZE;
-    T *s_v_b = s_upsilon + STATE_SIZE;
-    T *s_eta_new_b = s_v_b + STATE_SIZE;
+    c_float *s_lambda = s_temp;
+    c_float *s_r_tilde = s_lambda + STATE_SIZE;
+    c_float *s_upsilon = s_r_tilde + STATE_SIZE;
+    c_float *s_v_b = s_upsilon + STATE_SIZE;
+    c_float *s_eta_new_b = s_v_b + STATE_SIZE;
 
-    T *s_r = s_eta_new_b + STATE_SIZE;
-    T *s_p = s_r + 3*STATE_SIZE;
+    c_float *s_r = s_eta_new_b + STATE_SIZE;
+    c_float *s_p = s_r + 3*STATE_SIZE;
 
-    T *s_r_b = s_r + STATE_SIZE;
-    T *s_p_b = s_p + STATE_SIZE;
+    c_float *s_r_b = s_r + STATE_SIZE;
+    c_float *s_p_b = s_p + STATE_SIZE;
 
     T alpha, beta;
     T eta = static_cast<T>(0);	T eta_new = static_cast<T>(0);
@@ -979,9 +977,9 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
 
     // Need to sync before loading from other blocks
     grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
-    loadBlockTriDiagonal_offDiagonal<T,STATE_SIZE>(s_r,&d_r[bIndStateSize],block,grid);
+    loadBlockTriDiagonal_offDiagonal<c_float,STATE_SIZE>(s_r,&d_r[bIndStateSize],block,grid);
     block.sync();
-    matVecMultBlockTriDiagonal<T,STATE_SIZE>(s_r_tilde,s_pinv,s_r,block,grid);
+    matVecMultBlockTriDiagonal<c_float,STATE_SIZE>(s_r_tilde,s_pinv,s_r,block,grid);
     block.sync();
 
     // We copy p from r_tilde and write to device, since it will be required by other blocks
@@ -990,7 +988,7 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
         d_p[bIndStateSize + ind] = s_p_b[ind]; 
   	}
 
-    dotProd<T,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_tilde,block);
+    dotProd<c_float,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_tilde,block);
     block.sync();
 
     if(GATO_LEAD_THREAD){
@@ -1007,11 +1005,11 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
     // }
     
     for(unsigned iter = 0; iter < maxIters; iter++){
-        loadBlockTriDiagonal_offDiagonal<T,STATE_SIZE>(s_p,&d_p[bIndStateSize],block,grid);
+        loadBlockTriDiagonal_offDiagonal<c_float,STATE_SIZE>(s_p,&d_p[bIndStateSize],block,grid);
         block.sync();
-        matVecMultBlockTriDiagonal<T,STATE_SIZE>(s_upsilon,s_S,s_p,block,grid);
+        matVecMultBlockTriDiagonal<c_float,STATE_SIZE>(s_upsilon,s_S,s_p,block,grid);
         block.sync();
-        dotProd<T,STATE_SIZE>(s_v_b,s_p_b,s_upsilon,block);
+        dotProd<c_float,STATE_SIZE>(s_v_b,s_p_b,s_upsilon,block);
         block.sync();
 
         if(GATO_LEAD_THREAD){
@@ -1039,11 +1037,11 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
             }
         grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
 
-        loadBlockTriDiagonal_offDiagonal<T,STATE_SIZE>(s_r,&d_r[bIndStateSize],block,grid);
+        loadBlockTriDiagonal_offDiagonal<c_float,STATE_SIZE>(s_r,&d_r[bIndStateSize],block,grid);
         block.sync();
-        matVecMultBlockTriDiagonal<T,STATE_SIZE>(s_r_tilde,s_pinv,s_r,block,grid);
+        matVecMultBlockTriDiagonal<c_float,STATE_SIZE>(s_r_tilde,s_pinv,s_r,block,grid);
         block.sync();
-        dotProd<T,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_tilde,block);
+        dotProd<c_float,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_tilde,block);
         block.sync();
         if(GATO_LEAD_THREAD){
             atomicAdd(d_eta_new,s_eta_new_b[0]);
@@ -1092,18 +1090,18 @@ void parallelPCG_inner(T *s_S, T *s_pinv, T *s_gamma,  				// block-local consta
     
 }
 
-template <typename T, unsigned STATE_SIZE, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
+template <typename T, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
 __global__
-void parallelPCG(T *d_S, T *d_pinv, T *d_gamma,  				// block-local constant temporary variable inputs
-                        T *d_lambda, T *d_r, T *d_p, T *d_v, T *d_eta_new,	// global vectors and scalars
+void parallelPCG(c_float *d_S, c_float *d_pinv, c_float *d_gamma,  				// block-local constant temporary variable inputs
+                        c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new,	// global vectors and scalars
                          T exitTol = 1e-6, unsigned maxIters=100			    // shared mem for use in CG step and constants
                         ){
 
     __shared__ T s_temp[3*STATE_SIZE*STATE_SIZE + 3*STATE_SIZE*STATE_SIZE + STATE_SIZE + 11 * STATE_SIZE];
-    T *s_S = s_temp;
-    T *s_pinv = s_S +3*STATE_SIZE*STATE_SIZE;
-    T *s_gamma = s_pinv + 3*STATE_SIZE*STATE_SIZE;
-    T *shared_mem = s_gamma + STATE_SIZE;
+    c_float *s_S = s_temp;
+    c_float *s_pinv = s_S +3*STATE_SIZE*STATE_SIZE;
+    c_float *s_gamma = s_pinv + 3*STATE_SIZE*STATE_SIZE;
+    c_float *shared_mem = s_gamma + STATE_SIZE;
 
     cgrps::thread_block block = cgrps::this_thread_block();	 
     cgrps::grid_group grid = cgrps::this_grid();
@@ -1123,23 +1121,23 @@ void parallelPCG(T *d_S, T *d_pinv, T *d_gamma,  				// block-local constant tem
 }
 
 
-template <typename T, unsigned STATE_SIZE, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
+template <typename T, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
 __device__
-void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary variable inputs
-                        T *d_lambda, T *d_r, T *d_p, T *d_v, T *d_eta_new,	// global vectors and scalars
-                        T *s_temp, T exitTol, unsigned maxIters,			    // shared mem for use in CG step and constants
+void parallelCG_inner(c_float *s_S, c_float *s_gamma,  				// block-local constant temporary variable inputs
+                        c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new,	// global vectors and scalars
+                        c_float *s_temp, T exitTol, unsigned maxIters,			    // shared mem for use in CG step and constants
                         cgrps::thread_block block, cgrps::grid_group grid){                      
     //Initialise shared memory
-    T *s_lambda = s_temp;
-    T *s_upsilon = s_lambda+ STATE_SIZE;
-    T *s_v_b = s_upsilon + STATE_SIZE;
-    T *s_eta_new_b = s_v_b + STATE_SIZE;
+    c_float *s_lambda = s_temp;
+    c_float *s_upsilon = s_lambda+ STATE_SIZE;
+    c_float *s_v_b = s_upsilon + STATE_SIZE;
+    c_float *s_eta_new_b = s_v_b + STATE_SIZE;
 
-    T *s_r = s_eta_new_b + STATE_SIZE;
-    T *s_p = s_r + 3*STATE_SIZE;
+    c_float *s_r = s_eta_new_b + STATE_SIZE;
+    c_float *s_p = s_r + 3*STATE_SIZE;
 
-    T *s_r_b = s_r + STATE_SIZE;
-    T *s_p_b = s_p + STATE_SIZE;
+    c_float *s_r_b = s_r + STATE_SIZE;
+    c_float *s_p_b = s_p + STATE_SIZE;
 
     T alpha, beta;
     T eta = static_cast<T>(0);	T eta_new = static_cast<T>(0);
@@ -1173,7 +1171,7 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
         d_p[bIndStateSize + ind] = s_p_b[ind]; 
   	}
 
-    dotProd<T,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_b,block);
+    dotProd<c_float,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_b,block);
     block.sync();
 
     if(GATO_LEAD_THREAD){
@@ -1190,11 +1188,11 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
     // }
     
     for(unsigned iter = 0; iter < maxIters; iter++){
-        loadBlockTriDiagonal_offDiagonal<T,STATE_SIZE>(s_p,&d_p[bIndStateSize],block,grid);
+        loadBlockTriDiagonal_offDiagonal<c_float,STATE_SIZE>(s_p,&d_p[bIndStateSize],block,grid);
         block.sync();
-        matVecMultBlockTriDiagonal<T,STATE_SIZE>(s_upsilon,s_S,s_p,block,grid);
+        matVecMultBlockTriDiagonal<c_float,STATE_SIZE>(s_upsilon,s_S,s_p,block,grid);
         block.sync();
-        dotProd<T,STATE_SIZE>(s_v_b,s_p_b,s_upsilon,block);
+        dotProd<c_float,STATE_SIZE>(s_v_b,s_p_b,s_upsilon,block);
         block.sync();
 
         if(GATO_LEAD_THREAD){
@@ -1223,7 +1221,7 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
         grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
 
 
-        dotProd<T,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_b,block);
+        dotProd<c_float,STATE_SIZE>(s_eta_new_b,s_r_b,s_r_b,block);
         block.sync();
         if(GATO_LEAD_THREAD){
             atomicAdd(d_eta_new,s_eta_new_b[0]);
@@ -1272,18 +1270,18 @@ void parallelCG_inner(T *s_S, T *s_gamma,  				// block-local constant temporary
     
 }
 
-template <typename T, unsigned STATE_SIZE, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
+template <typename T, unsigned PRECONDITIONER_BANDWITH = 3, bool USE_TRACE = false>
 __global__
-void parallelCG(T *d_S, T *d_pinv, T *d_gamma,  				// block-local constant temporary variable inputs
-                        T *d_lambda, T *d_r, T *d_p, T *d_v, T *d_eta_new,	// global vectors and scalars
+void parallelCG(c_float *d_S, c_float *d_pinv, c_float *d_gamma,  				// block-local constant temporary variable inputs
+                        c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new,	// global vectors and scalars
                          T exitTol = 1e-6, unsigned maxIters=100			    // shared mem for use in CG step and constants
                         ){
 
     __shared__ T s_temp[3*STATE_SIZE*STATE_SIZE + 3*STATE_SIZE*STATE_SIZE + STATE_SIZE + 10 * STATE_SIZE];
-    T *s_S = s_temp;
-    T *s_pinv = s_S +3*STATE_SIZE*STATE_SIZE;
-    T *s_gamma = s_pinv + 3*STATE_SIZE*STATE_SIZE;
-    T *shared_mem = s_gamma + STATE_SIZE;
+    c_float *s_S = s_temp;
+    c_float *s_pinv = s_S +3*STATE_SIZE*STATE_SIZE;
+    c_float *s_gamma = s_pinv + 3*STATE_SIZE*STATE_SIZE;
+    c_float *shared_mem = s_gamma + STATE_SIZE;
 
     cgrps::thread_block block = cgrps::this_thread_block();	 
     cgrps::grid_group grid = cgrps::this_grid();
@@ -1333,10 +1331,10 @@ int check_sms(void* kernel, dim3 block){
 
 
 
-template <typename T, unsigned N, unsigned STATE_SIZE, unsigned CONTROL_SIZE, unsigned PRECONDITIONER_BANDWITH=3>
-void solve_pcg(T *d_S, T *d_Pinv, T *d_gamma){
+template <typename T, unsigned N, unsigned PRECONDITIONER_BANDWITH=3>
+void solve_pcg(c_float *d_S, c_float *d_Pinv, c_float *d_gamma){
 
-    T *d_lambda, *d_r, *d_p, *d_v, *d_eta_new, *d_r_tilde, *d_upsilon;
+    c_float *d_lambda, *d_r, *d_p, *d_v, *d_eta_new, *d_r_tilde, *d_upsilon;
 
     float exitTol = 1e-4;
     unsigned maxIters = 100;
@@ -1359,8 +1357,8 @@ void solve_pcg(T *d_S, T *d_Pinv, T *d_gamma){
     cudaDeviceSynchronize();
     
   
-    void *my_kernel = (void *)parallelPCG<T, STATE_SIZE, PRECONDITIONER_BANDWITH, false>;
-    int num_blocks = check_sms<T,N>(my_kernel, block);
+    void *my_kernel = (void *)parallelPCG<c_float, STATE_SIZE, PRECONDITIONER_BANDWITH, false>;
+    int num_blocks = check_sms<c_float,N>(my_kernel, block);
     cudaDeviceSynchronize();
     //Each block does exactly one row
     if(false){
@@ -1377,7 +1375,7 @@ void solve_pcg(T *d_S, T *d_Pinv, T *d_gamma){
             (void *)&exitTol
         };
         // printf("Using the old algo \n");
-        void *cg = (void *)parallelCG<T, STATE_SIZE, PRECONDITIONER_BANDWITH, false>;
+        void *cg = (void *)parallelCG<c_float, STATE_SIZE, PRECONDITIONER_BANDWITH, false>;
         sharedMemSize = (1*3 * STATES_SQ + STATE_SIZE + 10 * STATE_SIZE)*sizeof(T);
         cudaLaunchCooperativeKernel(cg, grid, block, kernelArgsCG, sharedMemSize);
         gpuErrchk( cudaDeviceSynchronize() );
@@ -1420,7 +1418,7 @@ void solve_pcg(T *d_S, T *d_Pinv, T *d_gamma){
             (void *)&exitTol
         };
         dim3 grid_fixed(num_blocks,1,1);
-        void *my_kernel_fixed = (void *)parallelPCG_fixed<T, STATE_SIZE, PRECONDITIONER_BANDWITH, N, false>;
+        void *my_kernel_fixed = (void *)parallelPCG_fixed<c_float, STATE_SIZE, PRECONDITIONER_BANDWITH, N, false>;
         gpuErrchk(cudaLaunchCooperativeKernel(my_kernel_fixed, grid_fixed, block, kernelArgsFixed, sharedMemSize));
         gpuErrchk( cudaPeekAtLastError() );
         gpuErrchk( cudaDeviceSynchronize() );

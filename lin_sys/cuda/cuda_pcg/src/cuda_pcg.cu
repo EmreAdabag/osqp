@@ -127,18 +127,18 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
                     c_int           max_iter) {
 
     unsigned pcg_iters;
-    c_float *d_S, *d_Pinv, *d_gamma, d_G, d_C, d_g; 
+    c_float *d_S, *d_Pinv, *d_gamma, *d_G, *d_C, *d_g; 
 
 
     // TODO: these should be calloc
     // TODO: malloc not mallocmanaged
     // need c too
-    cudaMallocManaged(&d_S, 3*STATES_SQ*KNOTS*sizeof(c_float));
-    cudaMallocManaged(&d_Pinv, 3*STATES_SQ*KNOTS*sizeof(c_float));
-    cudaMallocManaged(&d_gamma, STATES*KNOTS*sizeof(c_float));
-    cudaMallocManaged(&d_G, ((STATES_SQ+CONTROLS_SQ)*KNOTS-CONTROLS_SQ)*sizeof(c_float));
-    cudaMallocManaged(&d_C, (STATES_SQ+STATES_P_CONTROLS)*(KNOTS-1)*sizeof(c_float));
-    cudaMallocManaged(&d_g, ((STATE_SIZE+CONTROL_SIZE)*KNOTS-CONTROL_SIZE)*sizeof(c_float));
+    cudaMallocManaged((void **) &d_S, 3*STATES_SQ*KNOT_POINTS*sizeof(c_float));
+    cudaMallocManaged((void **) &d_Pinv, 3*STATES_SQ*KNOT_POINTS*sizeof(c_float));
+    cudaMallocManaged((void **) &d_gamma, STATE_SIZE*KNOT_POINTS*sizeof(c_float));
+    cudaMallocManaged((void **) &d_G, ((STATES_SQ+CONTROLS_SQ)*KNOT_POINTS-CONTROLS_SQ)*sizeof(c_float));
+    cudaMallocManaged((void **) &d_C, (STATES_SQ+STATES_P_CONTROLS)*(KNOT_POINTS-1)*sizeof(c_float));
+    cudaMallocManaged((void **) &d_g, ((STATE_SIZE+CONTROL_SIZE)*KNOT_POINTS-CONTROL_SIZE)*sizeof(c_float));
 
 
     // convert G, C, c into custom formats
@@ -146,7 +146,7 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
     // form Schur, Jacobi
     gato::gato_form_schur_jacobi<<<GATO_NUM_BLOCKS, GATO_THREADS_PER_BLOCK>>>(d_G, d_C, d_g, d_S, d_Pinv, d_gamma);
-
+    
     cudaDeviceSynchronize();
 
 #if SS_PRECON
@@ -159,7 +159,7 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
     // Miloni: solve PCG, d_S, d_Pinv, d_gamma are set
     // assuming its this, need solve_pcg to return iters
-    // pcg_iters = solve_pcg<c_float, KNOTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma);
+    // pcg_iters = solve_pcg<c_float, KNOT_POINTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma);
 
     cudaFree(d_S);
     cudaFree(d_Pinv);

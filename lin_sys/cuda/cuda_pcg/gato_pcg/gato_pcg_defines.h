@@ -3,7 +3,7 @@
 
 #define STATE_SIZE 2
 #define CONTROL_SIZE 1
-#define KNOTS 5
+#define KNOT_POINTS 5
 
 
 #define GATO_BLOCK_ID (blockIdx.x)

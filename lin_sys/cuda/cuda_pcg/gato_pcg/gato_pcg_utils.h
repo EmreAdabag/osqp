@@ -10,236 +10,12 @@ namespace cgrps = cooperative_groups;
 namespace gato{
 
 /*******************************************************************************
-*                         csr<->bd format conversion                           *
-*******************************************************************************/
-
-/*   convert csr format to custom block-diagonal-fmt */
-__device__
-void csr_to_bd(csr *csrmat,
-                c_float *bdmat,
-                unsigned bdim,
-                unsigned mdim){
-    
-    c_int col, row_start, row_end, bd_block_row, bd_block_col, bd_row, bd_col;
-    c_float val;
-    unsigned row, iter;
-
-    
-    for(row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID; row < csrmat->m; row +=GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS){    
-
-        row_start = csrmat->row_ptr[row];
-        row_end = csrmat->row_ptr[row+1];
-
-        for(iter=row_start; iter<row_end; iter++){
-            col = csrmat->col_ind[iter];
-            val = csrmat->val[iter];
-
-            bd_block_row = ( row / bdim );                     // block row
-            bd_block_col = ( col / bdim ) + 1 - bd_block_row;  // block col
-            bd_col = col % bdim;
-            bd_row = row % bdim;
-
-            bdmat[ bd_block_row*3*bdim*bdim + bd_block_col*bdim*bdim + bd_col*bdim + bd_row] = val;
-        }
-    }
-
-}
-
-__device__
-void csr_to_std(csr *csrmat,
-                c_float *stdmat){
-    
-    c_int col, row_start, row_end, bd_block_row, bd_block_col, bd_row, bd_col;
-    c_float val;
-    unsigned row, step, iter;
-    
-    row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
-    step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
-    
-    for(row; row < csrmat->m; row +=step){    
-
-        row_start = csrmat->row_ptr[row];
-        row_end = csrmat->row_ptr[row+1];
-
-        for(iter=row_start; iter<row_end; iter++){
-            col = csrmat->col_ind[iter];
-            val = csrmat->val[iter];
-
-            stdmat[col*csrmat->m + row] = val;
-        }
-    }
-}
-
-
-__device__
-void bd_to_csr(c_float *bdmat,
-                csr *csrmat,
-                unsigned bdim,
-                unsigned mdim){
-
-    c_int row, col, csr_row_offset, basic_col_offset, bd_block_row, bd_block_col, bd_col, bd_row, bd_row_len;
-    unsigned iter, bd_offset;
-
-    // each thread takes one row
-    for(row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID; row < csrmat->m; row += GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS){
-
-        bd_block_row = row/bdim;
-
-        // row_len
-        if(bd_block_row==0 || bd_block_row==mdim-1){
-            bd_row_len = 2*bdim;
-        }
-        else{
-            bd_row_len = 3*bdim;
-        }
-
-        // set row_ptr
-        if(bd_block_row==0){                        // first block
-            csr_row_offset = row*bd_row_len;
-            basic_col_offset = 0;
-
-            csrmat->row_ptr[row+1] = csr_row_offset+bd_row_len;
-            if(row==0){
-                csrmat->row_ptr[row] = 0;
-            }
-        }
-        else if(bd_block_row==mdim-1){              // last block
-            csr_row_offset = 2*bdim*bdim+(mdim-2)*3*bdim*bdim+(row%bdim)*bd_row_len;
-            basic_col_offset = (bd_block_row-1)*bdim;
-
-            csrmat->row_ptr[row+1] = csr_row_offset+bd_row_len;
-        }
-        else{
-            csr_row_offset = 2*bdim*bdim+(row-bdim)*bd_row_len;
-            basic_col_offset = (bd_block_row-1)*bdim;
-
-            csrmat->row_ptr[row+1] = csr_row_offset+bd_row_len;
-        }
-
-        for(iter=0; iter<bd_row_len; iter++){
-
-            col = basic_col_offset+iter;
-            bd_block_row = ( row / bdim );                     // block row
-            bd_block_col = ( col / bdim ) + 1 - bd_block_row;  // block col
-            bd_col = col % bdim;
-            bd_row = row % bdim;
-
-            bd_offset = bd_block_row*3*bdim*bdim + bd_block_col*bdim*bdim + bd_col*bdim + bd_row;
-            
-            csrmat->col_ind[csr_row_offset+iter] = col;
-            csrmat->val[csr_row_offset+iter] = bdmat[bd_offset];
-        }
-
-        if(row==csrmat->m-1){
-            csrmat->nnz = states*states*3*knots;
-        }
-
-    }
-}
-
-
-__device__
-void csr_to_custom_G(csr *csrmat,
-                     c_float *d_G){
-
-
-    /*
-    out size   (STATES_SQ+CONTROLS_SQ)*KNOTS-CONTROLS_SQ
-
-    output must be initialized to zeroes
-    */
-    
-    c_int row_start, row_end, in_set_row, set_offset, in_set_col;
-    unsigned row, step, iter;
-    
-    row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
-    step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
-    
-    for(; row < csrmat->m; row +=step){    
-
-        row_start = csrmat->row_ptr[row];
-        row_end = csrmat->row_ptr[row+1];
-
-        in_set_row = row % (STATE_SIZE+CONTROL_SIZE);
-        set_offset = (row / (STATE_SIZE + CONTROL_SIZE)) * (STATES_SQ + CONTROLS_SQ);
-
-        for(iter=row_start; iter<row_end; iter++){
-
-            in_set_col = csrmat->col_ind[iter] % (STATE_SIZE+CONTROL_SIZE);
-
-            if( in_set_col < STATE_SIZE){
-                d_G[set_offset + in_set_col * STATE_SIZE +in_set_row] = csrmat->val[iter];
-            }
-            else{
-                d_G[set_offset + STATES_SQ + (in_set_col - STATE_SIZE) * CONTROL_SIZE + (in_set_row - STATE_SIZE)] = csrmat->val[iter];
-            }
-        }
-    }
-}
-
-
-__device__
-void csr_to_custom_C(csr *csrmat,
-                     c_float *d_C){
-
-    /*
-    out size   (STATES_SQ+STATES_P_CONTROLS)*(KNOTS-1)*sizeof(c_float)
-
-    output must be initialized to zeroes
-    */
-
-    c_int col, row_start, row_end, block_row;
-    unsigned row, step, iter;
-    
-    row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
-    step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
-    
-    // step through rows
-    for(; row < csrmat->m; row +=step){
-
-        if(row < STATE_SIZE){continue;}
-
-        row_start = csrmat->row_ptr[row];
-        row_end = csrmat->row_ptr[row+1];
-
-        block_row = (row / STATE_SIZE)-1;
-
-        for(iter=row_start; iter<row_end; iter++){
-            
-            col = csrmat->col_ind[iter];
-            if((col/(STATE_SIZE+CONTROL_SIZE))>block_row){continue;}
-
-            d_C[ block_row*(STATES_SQ+STATES_P_CONTROLS)
-                            + (col % (STATE_SIZE+CONTROL_SIZE)) * STATE_SIZE
-                            + (row % (STATE_SIZE)) ] = csrmat->val[iter];
-
-        }
-    }
-}
-
-__global__
-void gato_convert_kkt_format(cudapcg_solver *s, c_float *d_G, c_float *d_C, c_float *d_g){
-    
-    // convert C to custom dense format
-    csr_to_custom_C(s->A, d_C);
-
-    // convert G to custom dense format
-    csr_to_custom_G(s->P, d_G);
-
-    // copy g into d_g
-    gato_memcpy(d_g, s->d_rhs, (STATE_SIZE+CONTROL_SIZE)*KNOTS-CONTROL_SIZE);
-
-    // TODO: mirror C, G if upper triangular only
-
-}
-
-/*******************************************************************************
 *                              loady things                                    *
 *******************************************************************************/
 
 template <typename T>
 __device__
-void pcg_memcpy(T *dst, T *src, unsigned size_Ts){
+void gato_memcpy(T *dst, T *src, unsigned size_Ts){
     unsigned ind;
     for(ind=GATO_THREAD_ID; ind < size_Ts; ind+=GATO_THREADS_PER_BLOCK){
         dst[ind] = src[ind];
@@ -282,7 +58,7 @@ void storeblock_funnyformat(T *src, T *dst, unsigned col, unsigned BLOCKNO, int 
 
     if(multiplier==1){
 
-        pcg_memcpy<T>(
+        gato_memcpy<T>(
             dst+block_row_offset+block_col_offset,
             src,
             B_DIM*B_DIM
@@ -314,7 +90,7 @@ void loadblock_funnyformat(T *src, T *dst, unsigned bcol, unsigned brow, bool tr
 
     if(!transpose){
 
-        pcg_memcpy<T>(
+        gato_memcpy<T>(
             dst,
             src+block_row_offset+block_col_offset,
             B_DIM*B_DIM
@@ -541,34 +317,36 @@ void print_raw_funny_format_matrix(T *A){
     }
 } 
 
-template <typename T, unsigned STATE_SIZE>
-__host__ __device__
-void print_raw_shared_matrix(T *A){
 
-    unsigned row_size, col_size;
-    unsigned i, j;
+// __host__ __device__
+// template <typename T, unsigned STATE_SIZE>
+// void print_raw_shared_matrix(T *A){
 
-    row_size = 3 * STATE_SIZE;
-    col_size = STATE_SIZE;
+//     unsigned row_size, col_size;
+//     unsigned i, j;
 
-    for(int i=0;i<row_size;i++){
-        for(int j=0; j<col_size;j++){
-            printf("%0.4f  ", A[j*STATE_SIZE*STATE_SIZE + i]);
-        }
-        printf("\n");
-    }
-} 
+//     row_size = 3 * STATE_SIZE;
+//     col_size = STATE_SIZE;
 
-template <typename T, unsigned ROW_SIZE>
-__host__ __device__
-void print_raw_shared_vector(T *A){
-    unsigned i;
+//     for(int i=0;i<row_size;i++){
+//         for(int j=0; j<col_size;j++){
+//             printf("%0.4f  ", A[j*STATE_SIZE*STATE_SIZE + i]);
+//         }
+//         printf("\n");
+//     }
+// } 
 
-    for(int i=0;i<ROW_SIZE;i++){
-        printf("%0.4f  ", A[i]); 
-    }
-    printf("\n");
-}
+
+// __host__ __device__
+// template <typename T, unsigned ROW_SIZE>
+// void print_raw_shared_vector(T *A){
+//     unsigned i;
+
+//     for(int i=0;i<ROW_SIZE;i++){
+//         printf("%0.4f  ", A[i]); 
+//     }
+//     printf("\n");
+// }
 
 
 
@@ -805,7 +583,7 @@ void invertMatrix(T *A, T *B, T *C, T *s_temp){
 *                             Integrator things                                *
 *******************************************************************************/
 
-
+/*
 template<typename T>
 __host__ __device__ 
 T angleWrap(T input){
@@ -938,7 +716,7 @@ void integratorAndGradient(T *s_xux, T *s_Ak, T *s_Bk, T *s_xnew_err, T *s_temp,
 
 
 
-
+*/
 
 /*******************************************************************************
 *                             matrix operations                                *
@@ -1005,6 +783,230 @@ void mat_mat_prod(T *mat_A, T *mat_B, T *out){
     }
 }
 
+
+/*******************************************************************************
+*                              format conversion                               *
+*******************************************************************************/
+
+/*   convert csr format to custom block-diagonal-fmt */
+__device__
+void csr_to_bd(csr *csrmat,
+                c_float *bdmat,
+                unsigned bdim,
+                unsigned mdim){
+    
+    c_int col, row_start, row_end, bd_block_row, bd_block_col, bd_row, bd_col;
+    c_float val;
+    unsigned row, iter;
+
+    
+    for(row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID; row < csrmat->m; row +=GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS){    
+
+        row_start = csrmat->row_ptr[row];
+        row_end = csrmat->row_ptr[row+1];
+
+        for(iter=row_start; iter<row_end; iter++){
+            col = csrmat->col_ind[iter];
+            val = csrmat->val[iter];
+
+            bd_block_row = ( row / bdim );                     // block row
+            bd_block_col = ( col / bdim ) + 1 - bd_block_row;  // block col
+            bd_col = col % bdim;
+            bd_row = row % bdim;
+
+            bdmat[ bd_block_row*3*bdim*bdim + bd_block_col*bdim*bdim + bd_col*bdim + bd_row] = val;
+        }
+    }
+
+}
+
+__device__
+void csr_to_std(csr *csrmat,
+                c_float *stdmat){
+    
+    c_int col, row_start, row_end;
+    c_float val;
+    unsigned row, step, iter;
+    
+    row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
+    step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
+    
+    for(row; row < csrmat->m; row +=step){    
+
+        row_start = csrmat->row_ptr[row];
+        row_end = csrmat->row_ptr[row+1];
+
+        for(iter=row_start; iter<row_end; iter++){
+            col = csrmat->col_ind[iter];
+            val = csrmat->val[iter];
+
+            stdmat[col*csrmat->m + row] = val;
+        }
+    }
+}
+
+
+__device__
+void bd_to_csr(c_float *bdmat,
+                csr *csrmat,
+                unsigned bdim,
+                unsigned mdim){
+
+    c_int row, col, csr_row_offset, basic_col_offset, bd_block_row, bd_block_col, bd_col, bd_row, bd_row_len;
+    unsigned iter, bd_offset;
+
+    // each thread takes one row
+    for(row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID; row < csrmat->m; row += GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS){
+
+        bd_block_row = row/bdim;
+
+        // row_len
+        if(bd_block_row==0 || bd_block_row==mdim-1){
+            bd_row_len = 2*bdim;
+        }
+        else{
+            bd_row_len = 3*bdim;
+        }
+
+        // set row_ptr
+        if(bd_block_row==0){                        // first block
+            csr_row_offset = row*bd_row_len;
+            basic_col_offset = 0;
+
+            csrmat->row_ptr[row+1] = csr_row_offset+bd_row_len;
+            if(row==0){
+                csrmat->row_ptr[row] = 0;
+            }
+        }
+        else if(bd_block_row==mdim-1){              // last block
+            csr_row_offset = 2*bdim*bdim+(mdim-2)*3*bdim*bdim+(row%bdim)*bd_row_len;
+            basic_col_offset = (bd_block_row-1)*bdim;
+
+            csrmat->row_ptr[row+1] = csr_row_offset+bd_row_len;
+        }
+        else{
+            csr_row_offset = 2*bdim*bdim+(row-bdim)*bd_row_len;
+            basic_col_offset = (bd_block_row-1)*bdim;
+
+            csrmat->row_ptr[row+1] = csr_row_offset+bd_row_len;
+        }
+
+        for(iter=0; iter<bd_row_len; iter++){
+
+            col = basic_col_offset+iter;
+            bd_block_row = ( row / bdim );                     // block row
+            bd_block_col = ( col / bdim ) + 1 - bd_block_row;  // block col
+            bd_col = col % bdim;
+            bd_row = row % bdim;
+
+            bd_offset = bd_block_row*3*bdim*bdim + bd_block_col*bdim*bdim + bd_col*bdim + bd_row;
+            
+            csrmat->col_ind[csr_row_offset+iter] = col;
+            csrmat->val[csr_row_offset+iter] = bdmat[bd_offset];
+        }
+
+        if(row==csrmat->m-1){
+            csrmat->nnz = STATE_SIZE*STATE_SIZE*3*KNOT_POINTS;
+        }
+
+    }
+}
+
+
+__device__
+void csr_to_custom_G(csr *csrmat,
+                     c_float *d_G){
+
+
+    /*
+    out size   (STATES_SQ+CONTROLS_SQ)*KNOT_POINTS-CONTROLS_SQ
+
+    output must be initialized to zeroes
+    */
+    
+    c_int row_start, row_end, in_set_row, set_offset, in_set_col;
+    unsigned row, step, iter;
+    
+    row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
+    step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
+    
+    for(; row < csrmat->m; row +=step){    
+
+        row_start = csrmat->row_ptr[row];
+        row_end = csrmat->row_ptr[row+1];
+
+        in_set_row = row % (STATE_SIZE+CONTROL_SIZE);
+        set_offset = (row / (STATE_SIZE + CONTROL_SIZE)) * (STATES_SQ + CONTROLS_SQ);
+
+        for(iter=row_start; iter<row_end; iter++){
+
+            in_set_col = csrmat->col_ind[iter] % (STATE_SIZE+CONTROL_SIZE);
+
+            if( in_set_col < STATE_SIZE){
+                d_G[set_offset + in_set_col * STATE_SIZE +in_set_row] = csrmat->val[iter];
+            }
+            else{
+                d_G[set_offset + STATES_SQ + (in_set_col - STATE_SIZE) * CONTROL_SIZE + (in_set_row - STATE_SIZE)] = csrmat->val[iter];
+            }
+        }
+    }
+}
+
+
+__device__
+void csr_to_custom_C(csr *csrmat,
+                     c_float *d_C){
+
+    /*
+    out size   (STATES_SQ+STATES_P_CONTROLS)*(KNOT_POINTS-1)*sizeof(c_float)
+
+    output must be initialized to zeroes
+    */
+
+    c_int col, row_start, row_end, block_row;
+    unsigned row, step, iter;
+    
+    row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
+    step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
+    
+    // step through rows
+    for(; row < csrmat->m; row +=step){
+
+        if(row < STATE_SIZE){continue;}
+
+        row_start = csrmat->row_ptr[row];
+        row_end = csrmat->row_ptr[row+1];
+
+        block_row = (row / STATE_SIZE)-1;
+
+        for(iter=row_start; iter<row_end; iter++){
+            
+            col = csrmat->col_ind[iter];
+            if((col/(STATE_SIZE+CONTROL_SIZE))>block_row){continue;}
+
+            d_C[ block_row*(STATES_SQ+STATES_P_CONTROLS)
+                            + (col % (STATE_SIZE+CONTROL_SIZE)) * STATE_SIZE
+                            + (row % (STATE_SIZE)) ] = csrmat->val[iter];
+
+        }
+    }
+}
+
+__global__
+void gato_convert_kkt_format(cudapcg_solver *s, c_float *d_G, c_float *d_C, c_float *d_g){
+    
+    // convert C to custom dense format
+    csr_to_custom_C(s->A, d_C);
+
+    // convert G to custom dense format
+    csr_to_custom_G(s->P, d_G);
+
+    // copy g into d_g
+    gato_memcpy<c_float>(d_g, s->d_rhs, ((STATE_SIZE+CONTROL_SIZE)*KNOT_POINTS-CONTROL_SIZE)*sizeof(c_float));
+
+    // TODO: mirror C, G if upper triangular only
+
+}
 
 }
 #endif      /* #ifndef PCG_UTILS */
