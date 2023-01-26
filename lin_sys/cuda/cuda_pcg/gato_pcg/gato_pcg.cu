@@ -689,7 +689,7 @@ namespace gato{
     __device__
     void parallelPCG_inner_fixed(c_float *d_S, c_float *d_pinv, c_float *d_gamma,  				// block-local constant temporary variable inputs
                             c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new, c_float *d_r_tilde, c_float *d_upsilon,	// global vectors and scalars
-                            c_float *s_temp, T exitTol, unsigned maxIters, 			    // shared mem for use in CG step and constants
+                            c_float *s_temp, T exitTol, unsigned maxIters, unsigned *iters 	    // shared mem for use in CG step and constants
                             cgrps::thread_block block, cgrps::grid_group grid){
                                 
         //Initialise shared memory
@@ -715,6 +715,10 @@ namespace gato{
 
         // Used when writing to device memory
         int bIndStateSize;
+
+        if(GATO_LEAD_BLOCK && GATO_LEAD_THREAD){
+            *iters = maxIters;
+        }
 
         // Initililiasation before the main-pcg loop
         // note that in this formulation we always reset lambda to 0 and therefore we can simplify this step
@@ -882,6 +886,10 @@ namespace gato{
                 // if(GATO_LEAD_BLOCK && GATO_LEAD_THREAD){
                 //     printf("Breaking at iter %d with eta %f > exitTol %f------------------------------------------------------\n", iter, abs(eta_new), exitTol);
                 // }
+                if(GATO_LEAD_BLOCK && GATO_LEAD_THREAD){
+                    *iters = iter;
+                }
+                
                 break;
             }
             
@@ -920,7 +928,8 @@ namespace gato{
     __global__
     void parallelPCG_fixed(c_float *d_S, c_float *d_pinv, c_float *d_gamma,  				// block-local constant temporary variable inputs
                             c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new, c_float *d_r_tilde, c_float *d_upsilon,	// global vectors and scalars
-                            T exitTol=1e-6, unsigned maxIters=100			    // shared mem for use in CG step and constants 
+                            T exitTol=1e-6, unsigned maxIters=100,			    // shared mem for use in CG step and constants 
+                            unsigned *iters
                             ){
 
         __shared__ T s_temp[3*STATE_SIZE*STATE_SIZE + 3*STATE_SIZE*STATE_SIZE + STATE_SIZE + 11 * STATE_SIZE];
@@ -929,7 +938,7 @@ namespace gato{
         cgrps::grid_group grid = cgrps::this_grid();
         
         grid.sync();
-        parallelPCG_inner_fixed<float, STATE_SIZE, PRECONDITIONER_BANDWITH, N, false>(d_S, d_pinv, d_gamma, d_lambda, d_r, d_p, d_v, d_eta_new, d_r_tilde, d_upsilon, s_temp, 1e-4, 100, block, grid);
+        parallelPCG_inner_fixed<float, STATE_SIZE, PRECONDITIONER_BANDWITH, N, false>(d_S, d_pinv, d_gamma, d_lambda, d_r, d_p, d_v, d_eta_new, d_r_tilde, d_upsilon, s_temp, 1e-4, 100, iters, block, grid);
         grid.sync();
     }
 
@@ -937,7 +946,7 @@ namespace gato{
     __device__
     void parallelPCG_inner(c_float *s_S, c_float *s_pinv, c_float *s_gamma,  				// block-local constant temporary variable inputs
                             c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new,	// global vectors and scalars
-                            c_float *s_temp, T exitTol, unsigned maxIters,			    // shared mem for use in CG step and constants
+                            c_float *s_temp, T exitTol, unsigned maxIters, unsigned *iters,			    // shared mem for use in CG step and constants
                             cgrps::thread_block block, cgrps::grid_group grid){                      
         //Initialise shared memory
         c_float *s_lambda = s_temp;
@@ -974,6 +983,9 @@ namespace gato{
             *d_v = static_cast<T>(0);
         }
 
+        if(GATO_LEAD_BLOCK && GATO_LEAD_THREAD){
+            *iters = maxIters;
+        }
         // Need to sync before loading from other blocks
         grid.sync(); //---------------------------------------------------------------------------------------------------GLOBAL BARRIER
         loadBlockTriDiagonal_offDiagonal<c_float,STATE_SIZE>(s_r,&d_r[bIndStateSize],block,grid);
@@ -1059,6 +1071,11 @@ namespace gato{
             block.sync();
 
             if(abs(eta_new) < exitTol){
+
+                if(GATO_LEAD_BLOCK && GATO_LEAD_THREAD){
+                    *iters = iter;
+                }
+
                 break;
             }
             
@@ -1093,7 +1110,7 @@ namespace gato{
     __global__
     void parallelPCG(c_float *d_S, c_float *d_pinv, c_float *d_gamma,  				// block-local constant temporary variable inputs
                             c_float *d_lambda, c_float *d_r, c_float *d_p, c_float *d_v, c_float *d_eta_new,	// global vectors and scalars
-                            T exitTol = 1e-6, unsigned maxIters=100			    // shared mem for use in CG step and constants
+                            T exitTol = 1e-6, unsigned maxIters=100, unsigned *iters	// shared mem for use in CG step and constants
                             ){
 
         __shared__ T s_temp[3*STATE_SIZE*STATE_SIZE + 3*STATE_SIZE*STATE_SIZE + STATE_SIZE + 11 * STATE_SIZE];
@@ -1115,7 +1132,7 @@ namespace gato{
         }
         grid.sync();
         //Fix maxiter and exitTol issue
-        parallelPCG_inner<float, STATE_SIZE, PRECONDITIONER_BANDWITH, false>(s_S, s_pinv, s_gamma, d_lambda, d_r, d_p, d_v, d_eta_new, shared_mem, 1e-4, 100, block, grid);
+        parallelPCG_inner<float, STATE_SIZE, PRECONDITIONER_BANDWITH, false>(s_S, s_pinv, s_gamma, d_lambda, d_r, d_p, d_v, d_eta_new, shared_mem, 1e-4, 100, iters, block, grid);
         grid.sync();
     }
 
@@ -1331,22 +1348,27 @@ namespace gato{
 
 
     template <typename T, unsigned N, unsigned PRECONDITIONER_BANDWITH=3>
-    void solve_pcg(c_float *d_S, c_float *d_Pinv, c_float *d_gamma){
+    c_int solve_pcg(c_float *d_S, c_float *d_Pinv, c_float *d_gamma, f_float *d_lambda, c_float eps, c_int max_iter){
 
-        c_float *d_lambda, *d_r, *d_p, *d_v, *d_eta_new, *d_r_tilde, *d_upsilon;
-
+        c_float *d_r, *d_p, *d_v, *d_eta_new, *d_r_tilde, *d_upsilon;
+        unsigned *iters;
+        
         float exitTol = 1e-4;
         unsigned maxIters = 100;
+        // TODO: enable these
+        // unsigned maxIters = max_iter;
+        // float exitTol = eps;
         unsigned sharedMemSize;
 
         
-        cudaMallocManaged(&d_lambda, STATE_SIZE*N* sizeof(T));
+        
         cudaMallocManaged(&d_r, STATE_SIZE*N*sizeof(T));
         cudaMallocManaged(&d_p, STATE_SIZE*N*sizeof(T));
         cudaMallocManaged(&d_v, sizeof(T));
         cudaMallocManaged(&d_eta_new, sizeof(T));
         cudaMallocManaged(&d_r_tilde, STATE_SIZE*N*sizeof(T));
         cudaMallocManaged(&d_upsilon, STATE_SIZE*N*sizeof(T));
+        cudaMallocManaged(&iters, sizeof(unsigned));
 
         
         sharedMemSize = (2 * 3 * STATES_SQ + STATE_SIZE + 11 * STATE_SIZE)*sizeof(T);
@@ -1391,7 +1413,8 @@ namespace gato{
                 (void *)&d_v,
                 (void *)&d_eta_new,
                 (void *)&maxIters,
-                (void *)&exitTol
+                (void *)&exitTol,
+                (void *)&iters
             };
             // printf("Using the old algo \n");
             cudaLaunchCooperativeKernel(my_kernel, grid, block, kernelArgs, sharedMemSize);
@@ -1414,7 +1437,8 @@ namespace gato{
                 (void *)&d_r_tilde,
                 (void *)&d_upsilon,
                 (void *)&maxIters,
-                (void *)&exitTol
+                (void *)&exitTol,
+                (void *)&iters
             };
             dim3 grid_fixed(num_blocks,1,1);
             void *my_kernel_fixed = (void *)parallelPCG_fixed<c_float, STATE_SIZE, PRECONDITIONER_BANDWITH, N, false>;
@@ -1423,7 +1447,7 @@ namespace gato{
             checkCudaErrors( cudaDeviceSynchronize() );
         }
         else{
-            return;
+            return 1;
         }
 
         // printf("Final Answer: \n");
@@ -1432,7 +1456,7 @@ namespace gato{
         //     std::cout<<d_lambda[i]<<"\n";
         // }
 
-        cudaFree(d_lambda);
+        
         cudaFree(d_r);
         cudaFree(d_p);
         cudaFree(d_v);
@@ -1440,6 +1464,10 @@ namespace gato{
         cudaFree(d_r_tilde);
         cudaFree(d_upsilon);
 
+        unsigned _iters = *iters;
+        cudaFree(iters);
+
+        return _iters;
     }
 
 }   /* namespace gato */

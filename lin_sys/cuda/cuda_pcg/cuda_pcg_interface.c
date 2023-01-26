@@ -17,6 +17,10 @@
 
 #include "cuda_pcg_interface.h"
 #include "cuda_pcg.h"
+#define GATO_PCG 1
+#if GATO_PCG
+#include "gato_pcg/gato_pcg_defines.h"
+#endif
 
 #include "cuda_lin_alg.h"
 #include "cuda_malloc.h"
@@ -165,7 +169,7 @@ c_int init_linsys_solver_cudapcg(cudapcg_solver    **sp,
   }
 
   /* Allocate PCG iterates */
-  // cuda_calloc((void **) &s->d_x,   n * sizeof(c_float));    /* Set d_x to zero */
+  cuda_calloc((void **) &s->d_x,   KNOT_POINTS*STATE_SIZE * sizeof(c_float));    /* Set d_x to zero */
   // cuda_malloc((void **) &s->d_p,   n * sizeof(c_float));
   // cuda_malloc((void **) &s->d_Kp,  n * sizeof(c_float));
   // cuda_malloc((void **) &s->d_y,   n * sizeof(c_float));
@@ -274,7 +278,7 @@ void free_linsys_solver_cudapcg(cudapcg_solver *s) {
     // if (s->polish) c_free(s->h_rho);
 
     /* PCG iterates */
-    // cuda_free((void **) &s->d_x);
+    cuda_free((void **) &s->d_x);
     // cuda_free((void **) &s->d_p);
     // cuda_free((void **) &s->d_Kp);
     // cuda_free((void **) &s->d_y);

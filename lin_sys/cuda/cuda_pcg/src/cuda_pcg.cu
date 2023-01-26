@@ -28,8 +28,8 @@
 extern "C" {extern CUDA_Handle_t *CUDA_handle;}
 #endif
 
-#define GATO_PCG
-#ifdef GATO_PCG
+
+#if GATO_PCG
 #include "../gato_pcg/gato_pcg.cu"
 
 c_int cuda_pcg_alg(cudapcg_solver *s,
@@ -69,7 +69,9 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
 
     // Miloni: solve PCG, d_S, d_Pinv, d_gamma are set
     // assuming its this, need solve_pcg to return iters
-    // pcg_iters = solve_pcg<c_float, KNOT_POINTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma);
+    pcg_iters = solve_pcg<c_float, KNOT_POINTS, STATE_SIZE, CONTROL_SIZE>(d_S, d_Pinv, d_gamma, s->d_x, eps, max_iter);
+    
+    
 
     cudaFree(d_S);
     cudaFree(d_Pinv);
@@ -77,7 +79,7 @@ c_int cuda_pcg_alg(cudapcg_solver *s,
     cudaFree(d_G);
     cudaFree(d_C);
     cudaFree(d_g);
-    pcg_iters = 1;
+    
     return pcg_iters;
 }
 
