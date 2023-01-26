@@ -737,7 +737,7 @@ void mat_vec_prod(T *mat, T *vec, T *out){
 }
 
 
-template <typename T, unsigned MAT_A_ROWS, unsigned MAT_A_COLS, unsigned MAT_B_ROWS, unsigned MAT_B_COLS, bool transposeB>
+template<typename T, unsigned MAT_A_ROWS, unsigned MAT_A_COLS, unsigned MAT_B_ROWS, unsigned MAT_B_COLS, bool transposeB>
 __device__
 void mat_mat_prod(T *mat_A, T *mat_B, T *out){
 
@@ -831,7 +831,7 @@ void csr_to_std(csr *csrmat,
     row = GATO_BLOCK_ID*GATO_THREADS_PER_BLOCK+GATO_THREAD_ID;
     step = GATO_THREADS_PER_BLOCK*GATO_NUM_BLOCKS;
     
-    for(row; row < csrmat->m; row +=step){    
+    for(; row < csrmat->m; row +=step){    
 
         row_start = csrmat->row_ptr[row];
         row_end = csrmat->row_ptr[row+1];
